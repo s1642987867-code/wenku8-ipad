@@ -9,6 +9,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/wenku8_api.dart';
+import '../api/web_scraper.dart';
 import '../models/models.dart';
 
 /// 书架管理（收藏 + 进度），持久化到 SharedPreferences。
@@ -48,7 +49,10 @@ class BookshelfService {
   }
 
   Future<void> addOrUpdate(Book book,
-      {String? lastCid, String? lastChapterTitle, int? lastPosition}) async {
+      {String? lastCid,
+      String? lastChapterTitle,
+      int? lastChapterIdx,
+      int? lastPosition}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final idx = _entries.indexWhere((e) => e.book.aid == book.aid);
     if (idx >= 0) {
@@ -62,6 +66,7 @@ class BookshelfService {
       _entries[idx] = e.copyWith(
         lastCid: lastCid,
         lastChapterTitle: lastChapterTitle,
+        lastChapterIdx: lastChapterIdx,
         lastPosition: lastPosition,
         lastReadAt: now,
       );
@@ -72,6 +77,7 @@ class BookshelfService {
             book: book,
             lastCid: lastCid,
             lastChapterTitle: lastChapterTitle,
+            lastChapterIdx: lastChapterIdx,
             lastPosition: lastPosition ?? 0,
             lastReadAt: now,
           ));
@@ -98,8 +104,13 @@ class LocalLibraryService {
       cache.root;
 
   Future<void> downloadBook(Book book, List<Volume> volumes,
-      {void Function(DownloadProgress)? onProgress}) async {
+      {void Function(DownloadProgress)? onProgress, WebScraper? scraper}) async {
     final totalChapters = volumes.fold<int>(0, (s, v) => s + v.chapters.length);
+    // C1 修复：w 前缀网页章节走爬虫双源（否则 TXT chapterContent 永远查不到）
+    final scraperForBook = scraper ??
+        (volumes.any((v) => v.chapters.any((c) => c.cid.startsWith('w')))
+            ? WebScraper()
+            : null);
     var done = 0;
     for (final vol in volumes) {
       for (final ch in vol.chapters) {
@@ -107,7 +118,12 @@ class LocalLibraryService {
           done++;
         } else {
           try {
-            final text = await api.chapterContent(ch.aid, ch.cid);
+            final String text;
+            if (scraperForBook != null && ch.cid.startsWith('w')) {
+              text = await scraperForBook.chapter(ch.aid, ch.cid);
+            } else {
+              text = await api.chapterContent(ch.aid, ch.cid);
+            }
             await cache.put(ch.aid, ch.cid, text);
             done++;
           } catch (_) {

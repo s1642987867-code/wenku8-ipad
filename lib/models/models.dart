@@ -130,12 +130,14 @@ class ShelfEntry {
   final Book book;
   final String? lastCid;
   final String? lastChapterTitle;
+  final int? lastChapterIdx; // 全局章序（M1：跨 cid 体系续读兜底）
   final int lastPosition; // 字符偏移或页码
   final int lastReadAt; // epoch ms
   ShelfEntry({
     required this.book,
     this.lastCid,
     this.lastChapterTitle,
+    this.lastChapterIdx,
     this.lastPosition = 0,
     required this.lastReadAt,
   });
@@ -143,13 +145,16 @@ class ShelfEntry {
   ShelfEntry copyWith({
     String? lastCid,
     String? lastChapterTitle,
+    int? lastChapterIdx,
     int? lastPosition,
     int? lastReadAt,
+    bool clearChapterIdx = false,
   }) =>
       ShelfEntry(
         book: book,
         lastCid: lastCid ?? this.lastCid,
         lastChapterTitle: lastChapterTitle ?? this.lastChapterTitle,
+        lastChapterIdx: clearChapterIdx ? null : (lastChapterIdx ?? this.lastChapterIdx),
         lastPosition: lastPosition ?? this.lastPosition,
         lastReadAt: lastReadAt ?? this.lastReadAt,
       );
@@ -158,6 +163,7 @@ class ShelfEntry {
         'book': book.toJson(),
         'lastCid': lastCid,
         'lastChapterTitle': lastChapterTitle,
+        'lastChapterIdx': lastChapterIdx,
         'lastPosition': lastPosition,
         'lastReadAt': lastReadAt,
       };
@@ -165,6 +171,7 @@ class ShelfEntry {
         book: Book.fromJson(j['book'] as Map<String, dynamic>),
         lastCid: j['lastCid'] as String?,
         lastChapterTitle: j['lastChapterTitle'] as String?,
+        lastChapterIdx: (j['lastChapterIdx'] as num?)?.toInt(),
         lastPosition: (j['lastPosition'] as num?)?.toInt() ?? 0,
         lastReadAt: (j['lastReadAt'] as num?)?.toInt() ?? 0,
       );

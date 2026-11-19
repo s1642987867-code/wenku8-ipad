@@ -39,7 +39,7 @@ class Wenku8Api {
 
   final http.Client _client;
   final Duration timeout;
-  final _RateGate _gate = _RateGate();
+  final RateGate _gate = RateGate();
 
   /// 全本 TXT 原文缓存（避免重复下载 3~10MB 文本）。
   final Map<String, _BookText> _bookTexts = {};
@@ -328,7 +328,7 @@ class _BookText {
 
 /// 简单限速门：两次请求间隔 ≥ 1.2s，降低 429 风险。
 /// m10 修复：用串行队列保证并发调用也不突破间隔。
-class _RateGate {
+class RateGate {
   DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> _chain = Future.value();
   Future<void> wait() {

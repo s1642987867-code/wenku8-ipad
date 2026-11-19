@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../api/wenku8_api.dart';
 import '../api/novel_catalog.dart';
+import '../api/web_scraper.dart';
 import '../models/models.dart';
 import '../services/services.dart';
 import '../ui/design_system.dart';
@@ -953,12 +954,19 @@ class ShelfPage extends StatelessWidget {
       final (book, volumes) = await api.bookDetail(aid);
       if (!context.mounted) return;
       final flat = [for (final v in volumes) ...v.chapters];
+      // M1 修复：cid 命中优先，否则按章序兜底（跨 cid 体系不丢进度）
       Chapter? resume;
       for (final c in flat) {
         if (c.cid == entry.lastCid) resume = c;
       }
-      resume ??= flat.firstOrNull;
+      resume ??= (entry.lastChapterIdx != null &&
+              entry.lastChapterIdx! < flat.length &&
+              entry.lastChapterIdx! >= 0)
+          ? flat[entry.lastChapterIdx!]
+          : flat.firstOrNull;
       if (resume == null) throw Wenku8Exception('本书未解析出章节');
+      // 续读章节是网页格式（w 前缀）→ 附带爬虫实例
+      final needScraper = resume.cid.startsWith('w') ? WebScraper() : null;
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ReaderPage(
           api: api,
@@ -969,9 +977,46 @@ class ShelfPage extends StatelessWidget {
           library: library,
           tts: tts,
           settingsService: settingsService,
+          scraper: needScraper,
         ),
       ));
-    } catch (e) {
+    } catch (txtErr) {
+      // 双源降级：TXT 通道失败 → 网页爬虫目录续读
+      if (int.tryParse(aid) != null) {
+        try {
+          final scraper = WebScraper();
+          final (book, volumes) = await scraper.toc(aid);
+          if (!context.mounted) return;
+          final flat = [for (final v in volumes) ...v.chapters];
+          // M1 修复：cid 命中优先，否则按章序兜底
+          Chapter? resume;
+          for (final c in flat) {
+            if (c.cid == entry.lastCid) resume = c;
+          }
+          resume ??= (entry.lastChapterIdx != null &&
+                  entry.lastChapterIdx! < flat.length &&
+                  entry.lastChapterIdx! >= 0)
+              ? flat[entry.lastChapterIdx!]
+              : flat.firstOrNull;
+          final target = resume;
+          if (target != null) {
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => ReaderPage(
+                api: api,
+                shelf: shelf,
+                book: book,
+                chapter: target,
+                volumes: volumes,
+                library: library,
+                tts: tts,
+                settingsService: settingsService,
+                scraper: scraper,
+              ),
+            ));
+            return;
+          }
+        } catch (_) {/* 落到详情页降级 */}
+      }
       // 降级：打开详情页
       if (!context.mounted) return;
       Navigator.of(context).push(MaterialPageRoute(
@@ -1231,6 +1276,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   List<Volume>? _volumes;
   String? _error;
   DownloadProgress? _dlProgress;
+  WebScraper? _scraper; // TXT 通道失败时的在线降级源
 
   @override
   void initState() {
@@ -1239,6 +1285,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 
   Future<void> _load() async {
+    // 在线双源：TXT 通道失败时自动降级到网页爬虫目录（无需登录，实测可用）
     try {
       final (book, volumes) = await widget.api.bookDetail(widget.book.aid);
       if (!mounted) return;
@@ -1247,6 +1294,19 @@ class _BookDetailPageState extends State<BookDetailPage> {
         _volumes = volumes;
       });
     } catch (e) {
+      if (int.tryParse(widget.book.aid) != null) {
+        try {
+          final scraper = WebScraper();
+          final (book, volumes) = await scraper.toc(widget.book.aid);
+          if (!mounted) return;
+          setState(() {
+            _detail = book;
+            _volumes = volumes;
+            _scraper = scraper;
+          });
+          return;
+        } catch (_) {/* 双源都失败 */}
+      }
       if (!mounted) return;
       setState(() => _error = e.toString());
     }
@@ -1568,6 +1628,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         library: widget.library,
         tts: widget.tts,
         settingsService: widget.settingsService,
+        scraper: _scraper,
       ),
     ));
   }
@@ -1709,6 +1770,7 @@ class ReaderPage extends StatefulWidget {
   final LocalLibraryService? library;
   final TtsService? tts;
   final SettingsService? settingsService;
+  final WebScraper? scraper; // 在线网页爬虫（w 前缀章节）
   const ReaderPage({
     super.key,
     required this.api,
@@ -1719,6 +1781,7 @@ class ReaderPage extends StatefulWidget {
     this.library,
     this.tts,
     this.settingsService,
+    this.scraper,
   });
 
   @override
@@ -1736,6 +1799,7 @@ class _ReaderPageState extends State<ReaderPage> {
   int? _visibleParagraph; // 当前可见段（加书签用，不触发跳段）
   int? _bookmarkJumpTarget; // 书签/查找跳段目标（消费后清空）
   BookmarkService? _bookmarkSvc;
+  WebScraper? _scraper; // 在线网页爬虫（w 前缀章节用）
 
   ReaderSettings _loadSettings() {
     final s = widget.settingsService;
@@ -1751,6 +1815,9 @@ class _ReaderPageState extends State<ReaderPage> {
   @override
   void initState() {
     super.initState();
+    // 在线章节（w 前缀 cid）或详情页降级传入的爬虫实例
+    _scraper = widget.scraper ??
+        (widget.chapter.cid.startsWith('w') ? WebScraper() : null);
     _loadChapter();
     _initBookmarks();
   }
@@ -1965,14 +2032,28 @@ class _ReaderPageState extends State<ReaderPage> {
       if (!mounted || seq != _loadSeq) return;
       if (cached != null) {
         setState(() => _content = cached);
-        // M2 修复：缓存命中也保存进度
+        // M2 修复：缓存命中也保存进度（M1：双写章序）
         await widget.shelf.addOrUpdate(widget.book,
-            lastCid: chapter.cid, lastChapterTitle: chapter.title);
+            lastCid: chapter.cid,
+            lastChapterTitle: chapter.title,
+            lastChapterIdx: _flatIndexOf(chapter));
         return;
       }
     }
     try {
-      final text = await widget.api.chapterContent(chapter.aid, chapter.cid);
+      String text;
+      // 在线双源：wenku8 数字 aid 且 cid 是网页格式（w 前缀）→ 网页爬虫逐章抓取；
+      // 否则走全本 TXT 通道（老路径）。两者成功后均落缓存（离线可读）。
+      final isWebChapter = chapter.cid.startsWith('w') &&
+          int.tryParse(chapter.aid) != null;
+      // M3 修复：w 章节必须有爬虫，兜底实例化防「章节不存在」
+      final scraper = _scraper ??
+          (isWebChapter ? (_scraper = WebScraper()) : null);
+      if (isWebChapter && scraper != null) {
+        text = await scraper.chapter(chapter.aid, chapter.cid);
+      } else {
+        text = await widget.api.chapterContent(chapter.aid, chapter.cid);
+      }
       if (!mounted || seq != _loadSeq) return;
       if (widget.library != null) {
         await widget.library!.cache.put(chapter.aid, chapter.cid, text);
@@ -1982,9 +2063,23 @@ class _ReaderPageState extends State<ReaderPage> {
       if (!mounted || seq != _loadSeq) return;
       setState(() => _error = e.toString());
     }
-    // 记录进度
+    // 记录进度（M1：双写章序）
     await widget.shelf.addOrUpdate(widget.book,
-        lastCid: chapter.cid, lastChapterTitle: chapter.title);
+        lastCid: chapter.cid,
+        lastChapterTitle: chapter.title,
+        lastChapterIdx: _flatIndexOf(chapter));
+  }
+
+  /// 章在 widget.volumes 中的全局序（跨 cid 体系续读兜底）。
+  int? _flatIndexOf(Chapter c) {
+    var i = 0;
+    for (final v in widget.volumes) {
+      for (final ch in v.chapters) {
+        if (ch.cid == c.cid) return i;
+        i++;
+      }
+    }
+    return null;
   }
 
   void _jumpTo(Chapter c) {
