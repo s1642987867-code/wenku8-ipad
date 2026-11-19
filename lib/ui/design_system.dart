@@ -357,3 +357,288 @@ class _Spine extends StatelessWidget {
     );
   }
 }
+
+// ---------------- 陈列书架（发现页） ----------------
+
+/// 一册立体陈列书：平放书板（带封面缩略）+ 直立书脊，两张为一组交叠。
+/// 仿 wenku8 纪念站书架陈列：中间书直立立起（正面朝外），左右书直立排开（只见书脊）。
+class DisplayShelf extends StatelessWidget {
+  final List<DisplayBook> books;
+  final int uprightIndex; // 本组中立起的书下标
+  final void Function(DisplayBook book)? onBookTap;
+  final double spineWidth;
+  final double uprightWidth;
+
+  const DisplayShelf({
+    super.key,
+    required this.books,
+    this.uprightIndex = -1,
+    this.onBookTap,
+    this.spineWidth = 34,
+    this.uprightWidth = 118,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.only(top: 10),
+          // 底板阴影
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x14000000), Color(0x00000000)],
+            ),
+          ),
+          // C2 修复：窄屏等比缩放整架，防 RenderFlex overflow
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var i = 0; i < books.length; i++)
+                  _DisplayBookWidget(
+                    book: books[i],
+                    upright: i == uprightIndex,
+                    spineWidth: spineWidth,
+                    uprightWidth: uprightWidth,
+                    tilt: (i - (uprightIndex >= 0 ? uprightIndex : 0))
+                        .clamp(-1, 1),
+                    onTap: onBookTap == null
+                        ? null
+                        : () => onBookTap!(books[i]),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        // 书板（三层厚度）
+        Container(
+          height: 10,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFFEDE1CD),
+                Color(0xFFC7B08B),
+                Color(0xFFA08860),
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x2E000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class DisplayBook {
+  final String aid;
+  final String title;
+  final String? author;
+  final String? coverUrl;
+  final Color spineColor;
+  const DisplayBook({
+    required this.aid,
+    required this.title,
+    this.author,
+    this.coverUrl,
+    required this.spineColor,
+  });
+}
+
+class _DisplayBookWidget extends StatelessWidget {
+  final DisplayBook book;
+  final bool upright; // 立起：正面朝外（显示封面）
+  final double spineWidth;
+  final double uprightWidth;
+  final int tilt; // -1 左倾 / 0 中 / 1 右倾（相邻书的交叠错落）
+  final VoidCallback? onTap;
+
+  const _DisplayBookWidget({
+    required this.book,
+    required this.upright,
+    required this.spineWidth,
+    required this.uprightWidth,
+    required this.tilt,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final spine = GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: spineWidth,
+        height: 168,
+        margin: EdgeInsets.symmetric(
+            horizontal: 1, vertical: tilt == 0 ? 0 : (tilt.abs() * 2.0)),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              Color.lerp(book.spineColor, Colors.black, 0.30)!,
+              book.spineColor,
+              Color.lerp(book.spineColor, Colors.white, 0.15)!,
+            ],
+            stops: const [0, 0.5, 1],
+          ),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(3),
+            topRight: Radius.circular(3),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.30),
+              blurRadius: 6,
+              offset: Offset(tilt * 4.0, 3),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // 编号签
+            Text(
+              'N ${book.aid}',
+              style: const TextStyle(
+                color: Color(0xAAFBF8F2),
+                fontSize: 8,
+                letterSpacing: 0.5,
+              ),
+            ),
+            // 竖排标题
+            Expanded(
+              child: Center(
+                child: RotatedBox(
+                  quarterTurns: 1,
+                  child: Text(
+                    book.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xE6FBF8F2),
+                      fontSize: upright ? 11 : 10.5,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                      height: 1.15,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!upright) return spine;
+
+    // 立起书：正面封面 + 黑白档案风边框
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: uprightWidth,
+        height: 172,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(4),
+            topRight: Radius.circular(4),
+          ),
+          border: Border.all(color: const Color(0x22000000)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 14,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            // 顶部档案编号条
+            Container(
+              height: 18,
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: Text(
+                'NO.${book.aid.padLeft(3, '0')}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  letterSpacing: 1.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            // 封面
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: book.coverUrl != null
+                    ? Image.network(
+                        book.coverUrl!,
+                        fit: BoxFit.cover,
+                        // M4 修复：删除错误 loadingBuilder（会在加载中/无
+                        // Content-Length 时永远显示黑底 fallback）
+                        errorBuilder: (_, __, ___) => _coverFallback(),
+                      )
+                    : _coverFallback(),
+              ),
+            ),
+            // 底部书名条
+            Container(
+              height: 22,
+              color: Colors.white,
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                book.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _coverFallback() => Container(
+        color: const Color(0xFF2B2B2B),
+        alignment: Alignment.center,
+        child: Text(
+          book.title,
+          textAlign: TextAlign.center,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            fontFamily: 'Songti',
+          ),
+        ),
+      );
+}
