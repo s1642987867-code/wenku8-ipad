@@ -8,8 +8,8 @@ on:
 
 jobs:
   build:
-    # macOS 云构建机（公开仓库免费）
-    runs-on: macos-14
+    # macOS 云构建机（公开仓库免费；macos-14 已弃用）
+    runs-on: macos-15
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
