@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'api/wenku8_api.dart';
+import 'api/novel_catalog.dart';
 import 'pages/pages.dart';
 import 'services/services.dart';
 import 'ui/design_system.dart';
@@ -80,6 +81,15 @@ class _HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<_HomeShell> {
   int _tab = 0;
+  NovelCatalog? _catalog;
+
+  @override
+  void initState() {
+    super.initState();
+    NovelCatalog.load().then((c) {
+      if (mounted) setState(() => _catalog = c);
+    }).catchError((_) {});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,9 +98,24 @@ class _HomeShellState extends State<_HomeShell> {
     final app = context.findAncestorWidgetOfExactType<Wenku8App>()!;
 
     final pages = [
-      DiscoverPage(api: app.api, shelf: app.shelf),
-      ShelfPage(shelf: app.shelf, library: app.library, api: app.api),
-      LibraryPage(library: app.library, shelf: app.shelf, api: app.api),
+      DiscoverPage(
+          api: app.api,
+          shelf: app.shelf,
+          tts: app.tts,
+          settingsService: app.settings),
+      ShelfPage(
+          shelf: app.shelf,
+          library: app.library,
+          api: app.api,
+          tts: app.tts,
+          settingsService: app.settings,
+          catalog: _catalog),
+      LibraryPage(
+          library: app.library,
+          shelf: app.shelf,
+          api: app.api,
+          tts: app.tts,
+          settingsService: app.settings),
     ];
 
     final body = wide
@@ -120,12 +145,15 @@ class _HomeShellState extends State<_HomeShell> {
                 ),
               ),
               const VerticalDivider(width: 1, color: CreamTokens.glassBorder),
-              Expanded(child: pages[_tab]),
+              Expanded(
+                // IndexedStack 保持各 tab 的 State（滚动位置、搜索结果不丢失）
+                child: IndexedStack(index: _tab, children: pages),
+              ),
             ],
           )
         : Scaffold(
             backgroundColor: Colors.transparent,
-            body: pages[_tab],
+            body: IndexedStack(index: _tab, children: pages),
             bottomNavigationBar: CreamGlass(
               radius: BorderRadius.zero,
               child: NavigationBar(

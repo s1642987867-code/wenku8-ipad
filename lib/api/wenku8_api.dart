@@ -394,6 +394,18 @@ class ContentCache {
     if (await d.exists()) await d.delete(recursive: true);
   }
 
+  /// 清空全部章节缓存（保留目录结构）。
+  Future<void> clearAll() async {
+    if (!await root.exists()) return;
+    await for (final e in root.list()) {
+      if (e is Directory) {
+        await e.delete(recursive: true);
+      } else if (e is File) {
+        await e.delete();
+      }
+    }
+  }
+
   Future<int> bookChapterCount(String aid) async {
     final d = Directory('${root.path}${Platform.pathSeparator}$aid');
     if (!await d.exists()) return 0;

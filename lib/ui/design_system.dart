@@ -78,6 +78,7 @@ class ArchiveCard extends StatelessWidget {
   final List<String> tags;
   final VoidCallback? onTap;
   final Widget? leading;
+  final Widget? trailing; // 右侧附加操作（如删除按钮）
 
   const ArchiveCard({
     super.key,
@@ -87,6 +88,7 @@ class ArchiveCard extends StatelessWidget {
     this.tags = const [],
     this.onTap,
     this.leading,
+    this.trailing,
   });
 
   @override
@@ -160,6 +162,10 @@ class ArchiveCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing!,
+            ],
           ],
         ),
       ),

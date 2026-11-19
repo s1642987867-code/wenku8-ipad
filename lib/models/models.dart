@@ -3,6 +3,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 /// 书籍。
 class Book {
   final String aid; // wenku8 书籍 id
@@ -167,6 +169,88 @@ class ShelfEntry {
       );
 }
 
+/// 书签。
+class Bookmark {
+  final String aid;
+  final String cid;
+  final String chapterTitle;
+  final String excerpt; // 书签定位处文本摘要
+  final int paragraphIndex;
+  final int createdAt; // epoch ms
+  const Bookmark({
+    required this.aid,
+    required this.cid,
+    required this.chapterTitle,
+    required this.excerpt,
+    required this.paragraphIndex,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'aid': aid,
+        'cid': cid,
+        'chapterTitle': chapterTitle,
+        'excerpt': excerpt,
+        'paragraphIndex': paragraphIndex,
+        'createdAt': createdAt,
+      };
+  factory Bookmark.fromJson(Map<String, dynamic> j) => Bookmark(
+        aid: j['aid'] as String,
+        cid: j['cid'] as String,
+        chapterTitle: j['chapterTitle'] as String? ?? '',
+        excerpt: j['excerpt'] as String? ?? '',
+        paragraphIndex: (j['paragraphIndex'] as num?)?.toInt() ?? 0,
+        createdAt: (j['createdAt'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// 书签存取（SharedPreferences，按书聚合）。
+class BookmarkService {
+  static const _key = 'bookmarks_v1';
+  List<Bookmark> _items = [];
+  List<Bookmark> get items => List.unmodifiable(_items);
+
+  Future<void> load() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_key);
+      if (raw != null) {
+        final list = jsonDecode(raw) as List;
+        _items = list
+            .map((e) => Bookmark.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {
+      // minor5 修复：JSON 损坏时忽略，书签功能仍可用（新写入会覆盖坏数据）
+      _items = [];
+    }
+  }
+
+  Future<void> _save() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_key, jsonEncode(_items.map((e) => e.toJson()).toList()));
+  }
+
+  List<Bookmark> forBook(String aid) =>
+      _items.where((b) => b.aid == aid).toList();
+
+  bool has(String aid, String cid, int paragraphIndex) =>
+      _items.any((b) => b.aid == aid && b.cid == cid && b.paragraphIndex == paragraphIndex);
+
+  Future<void> add(Bookmark bm) async {
+    _items.removeWhere((b) =>
+        b.aid == bm.aid && b.cid == bm.cid && b.paragraphIndex == bm.paragraphIndex);
+    _items.insert(0, bm);
+    await _save();
+  }
+
+  Future<void> remove(String aid, String cid, int paragraphIndex) async {
+    _items.removeWhere((b) =>
+        b.aid == aid && b.cid == cid && b.paragraphIndex == paragraphIndex);
+    await _save();
+  }
+}
+
 /// 阅读模式。
 enum ReaderMode { scroll, horizontalPage, verticalPage, twoPage }
 
@@ -210,7 +294,8 @@ class ReaderSettings {
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
         fontSize: (j['fontSize'] as num?)?.toDouble() ?? 19,
         lineHeight: (j['lineHeight'] as num?)?.toDouble() ?? 1.8,
-        mode: ReaderMode.values[(j['mode'] as num?)?.toInt() ?? 1],
+        mode: ReaderMode.values[((j['mode'] as num?)?.toInt() ?? 1)
+            .clamp(0, ReaderMode.values.length - 1)],
         fontFamily: j['fontFamily'] as String? ?? 'Songti',
         theme: j['theme'] as String? ?? 'cream',
       );

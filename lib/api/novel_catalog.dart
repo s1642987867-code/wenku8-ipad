@@ -133,6 +133,7 @@ class NovelCatalog {
     String? tag,
     String? publish,
     String? status,
+    bool completedOnly = false,
     int page = 1,
     int pageSize = 24,
   }) {
@@ -145,15 +146,18 @@ class NovelCatalog {
     if (publish != null && publish.isNotEmpty) {
       pool = pool.where((e) => e.publish == publish).toList();
     }
-    if (status != null && status.isNotEmpty) {
-      pool = pool.where((e) => e.status == status).toList();
+    if (completedOnly || status != null && status.isNotEmpty) {
+      pool = pool
+          .where((e) =>
+              (completedOnly || status == null || status.isEmpty || e.completed) &&
+              (status == null || status.isEmpty || e.status == status))
+          .toList();
     }
     final sorted = switch (sort) {
       CatalogSort.update => pool.toList()
         ..sort((a, b) => (b.lastUpdate ?? '').compareTo(a.lastUpdate ?? '')),
       CatalogSort.length => pool.toList()
         ..sort((a, b) => b.length.compareTo(a.length)),
-      CatalogSort.complete => pool.where((e) => e.completed).toList(),
       CatalogSort.popular => pool, // 快照原序（aid 序，近似老作品在前）
     };
     final start = (page - 1) * pageSize;
@@ -162,7 +166,11 @@ class NovelCatalog {
     return sorted.sublist(s, (s + pageSize).clamp(s, sorted.length));
   }
 
-  int countOf({String? tag, String? publish, String? status}) {
+  int countOf(
+      {String? tag,
+      String? publish,
+      String? status,
+      bool completedOnly = false}) {
     var pool = entries;
     if (tag != null && tag.isNotEmpty) {
       final nTag = normalizeCjk(tag);
@@ -174,6 +182,9 @@ class NovelCatalog {
     }
     if (status != null && status.isNotEmpty) {
       pool = pool.where((e) => e.status == status).toList();
+    }
+    if (completedOnly) {
+      pool = pool.where((e) => e.completed).toList();
     }
     return pool.length;
   }
@@ -210,7 +221,7 @@ class NovelCatalog {
   }
 }
 
-enum CatalogSort { popular, update, length, complete }
+enum CatalogSort { popular, update, length }
 
 /// 目录条目（对齐 wenku8_novel_list 的 novel.json 字段）。
 class CatalogEntry {

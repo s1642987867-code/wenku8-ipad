@@ -1,6 +1,8 @@
 /// 页面：发现 / 书架 / 本地书库 / 详情 / 阅读 / 听书。
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../api/wenku8_api.dart';
@@ -38,9 +40,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
   int _totalShelfPages = 1;
   String? _activeTag; // 标签筛选
   CatalogSort _sort = CatalogSort.popular;
+  String? _activePublisher; // 文库筛选
+  bool _completeOnly = false; // 只看完结
 
   static const int _booksPerShelf = 9; // 每个陈列架 9 册（8 脊 + 1 立起）
-  static const int _recentCount = 96;
 
   @override
   void initState() {
@@ -75,11 +78,12 @@ class _DiscoverPageState extends State<DiscoverPage> {
     if (_results != null) {
       _totalShelfPages =
           (_results!.length / _booksPerShelf).ceil().clamp(1, 1 << 30);
-    } else if (_activeTag != null) {
-      final n = c.countOf(tag: _activeTag);
-      _totalShelfPages = (n / _booksPerShelf).ceil().clamp(1, 1 << 30);
     } else {
-      _totalShelfPages = (_recentCount / _booksPerShelf).ceil();
+      final n = c.countOf(
+          tag: _activeTag,
+          publish: _activePublisher,
+          completedOnly: _completeOnly);
+      _totalShelfPages = (n / _booksPerShelf).ceil().clamp(1, 1 << 30);
     }
     if (_shelfPage >= _totalShelfPages) _shelfPage = _totalShelfPages - 1;
     if (_shelfPage < 0) _shelfPage = 0;
@@ -89,18 +93,27 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
-  /// 当前陈列架第 [page] 组书目。
-  List<CatalogEntry> _shelfBooks(int page) {
+  /// 缓存当前筛选下的书目池（m8：避免每页翻页全量重建）。
+  List<CatalogEntry>? _poolCache;
+
+  List<CatalogEntry> _currentPool() {
     final c = _catalog;
     if (c == null) return const [];
-    List<CatalogEntry> pool;
-    if (_results != null) {
-      pool = _results!;
-    } else if (_activeTag != null) {
-      pool = c.listPage(tag: _activeTag, sort: _sort, pageSize: 1 << 30);
-    } else {
-      pool = c.recent(count: _recentCount);
-    }
+    if (_results != null) return _results!;
+    return _poolCache ??= c.listPage(
+      sort: _sort,
+      tag: _activeTag,
+      publish: _activePublisher,
+      completedOnly: _completeOnly,
+      pageSize: 1 << 30,
+    );
+  }
+
+  void _invalidatePool() => _poolCache = null;
+
+  /// 当前陈列架第 [page] 组书目。
+  List<CatalogEntry> _shelfBooks(int page) {
+    final pool = _currentPool();
     final start = page * _booksPerShelf;
     if (start >= pool.length) return const [];
     return pool.sublist(start, (start + _booksPerShelf).clamp(0, pool.length));
@@ -115,6 +128,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
       _results = r;
       _shelfPage = 0;
       _activeTag = null;
+      _activePublisher = null;
+      _completeOnly = false;
+      _sort = CatalogSort.popular;
+      _invalidatePool();
       _error = r.isEmpty ? '全站 ${c.length} 本中未找到「$kw」' : null;
     });
     _updateShelfPages();
@@ -125,6 +142,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       _results = null;
       _error = null;
       _shelfPage = 0;
+      _invalidatePool();
     });
     _updateShelfPages();
   }
@@ -135,8 +153,42 @@ class _DiscoverPageState extends State<DiscoverPage> {
       _results = null;
       _error = null;
       _shelfPage = 0;
+      _invalidatePool();
     });
     _updateShelfPages();
+  }
+
+  /// 打开完整筛选面板（分类 / 排行 / 出版文库）。
+  Future<void> _openFilterSheet() async {
+    final c = _catalog;
+    if (c == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CreamTokens.bgBase,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetCtx) => _FilterSheet(
+        catalog: c,
+        currentSort: _sort,
+        currentTag: _activeTag,
+        currentPublisher: _activePublisher,
+        completeOnly: _completeOnly,
+        onApply: (sort, tag, pub, complete) {
+          Navigator.of(sheetCtx).pop();
+          setState(() {
+            _sort = sort;
+            _activeTag = tag;
+            _activePublisher = pub;
+            _completeOnly = complete;
+            _results = null;
+            _error = null;
+            _shelfPage = 0;
+            _invalidatePool();
+          });
+          _updateShelfPages();
+        },
+      ),
+    );
   }
 
   void _openDetail(CatalogEntry e) {
@@ -183,15 +235,44 @@ class _DiscoverPageState extends State<DiscoverPage> {
               child: Text(_error!,
                   style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
             ),
-          if (_activeTag != null || _results != null)
+          if (_activeTag != null ||
+              _results != null ||
+              _activePublisher != null ||
+              _completeOnly ||
+              _sort != CatalogSort.popular)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Row(
                 children: [
+                  if (_sort != CatalogSort.popular)
+                    _chip(
+                        '排序：${switch (_sort) {
+                          CatalogSort.update => '最近更新',
+                          CatalogSort.length => '字数最多',
+                          _ => '默认',
+                        }}',
+                        () {
+                      setState(() => _sort = CatalogSort.popular);
+                      _invalidatePool();
+                      _updateShelfPages();
+                    }),
+                  if (_activePublisher != null)
+                    _chip('文库：$_activePublisher', () {
+                      setState(() => _activePublisher = null);
+                      _invalidatePool();
+                      _updateShelfPages();
+                    }),
+                  if (_completeOnly)
+                    _chip('只看完结', () {
+                      setState(() => _completeOnly = false);
+                      _invalidatePool();
+                      _updateShelfPages();
+                    }),
                   if (_activeTag != null)
                     _chip('标签：$_activeTag', () => _pickTag(null)),
                   if (_results != null)
-                    _chip('搜索：${_ctrl.text} (${_results!.length})', _clearSearch),
+                    _chip(
+                        '搜索：${_ctrl.text} (${_results!.length})', _clearSearch),
                 ],
               ),
             ),
@@ -319,7 +400,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 区块标题：01 / CATALOG —— 最近更新 / 标签名
+        // 区块标题：01 / CATALOG —— 最近更新 / 标签名 + 筛选按钮
         Row(
           children: [
             Text(_activeTag != null ? '02 / TAG' : '01 / CATALOG',
@@ -342,6 +423,36 @@ class _DiscoverPageState extends State<DiscoverPage> {
                     color: Colors.black,
                     fontFamily: 'Songti'),
               ),
+            ),
+            // 排行直达
+            PopupMenuButton<CatalogSort>(
+              tooltip: '排行',
+              icon: const Icon(Icons.leaderboard_outlined,
+                  size: 20, color: Colors.black54),
+              onSelected: (s) {
+                setState(() => _sort = s);
+                _invalidatePool();
+                _updateShelfPages();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: CatalogSort.popular, child: Text('默认书序')),
+                PopupMenuItem(value: CatalogSort.update, child: Text('最近更新')),
+                PopupMenuItem(value: CatalogSort.length, child: Text('字数最多')),
+              ],
+            ),
+            // 筛选面板
+            IconButton(
+              tooltip: '筛选',
+              icon: Icon(
+                Icons.tune,
+                size: 20,
+                color: (_activeTag != null ||
+                        _activePublisher != null ||
+                        _completeOnly)
+                    ? Colors.black
+                    : Colors.black54,
+              ),
+              onPressed: _openFilterSheet,
             ),
             if (_totalShelfPages > 1)
               Text('${_shelfPage + 1} / $_totalShelfPages',
@@ -455,12 +566,296 @@ class _DiscoverPageState extends State<DiscoverPage> {
                     onPressed: () => _pickTag(t),
                   ),
                 ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ActionChip(
+                  label: const Text('全部标签',
+                      style: TextStyle(fontSize: 11)),
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: Color(0x1A000000)),
+                  onPressed: () => _pickTag(null), // 清除并交给筛选面板
+                ),
+              ),
             ],
           ),
         ),
       ],
     );
   }
+}
+
+// ---------------- 筛选面板 ----------------
+
+class _FilterSheet extends StatefulWidget {
+  final NovelCatalog catalog;
+  final CatalogSort currentSort;
+  final String? currentTag;
+  final String? currentPublisher;
+  final bool completeOnly;
+  final void Function(CatalogSort, String?, String?, bool) onApply;
+  const _FilterSheet({
+    required this.catalog,
+    required this.currentSort,
+    required this.currentTag,
+    required this.currentPublisher,
+    required this.completeOnly,
+    required this.onApply,
+  });
+
+  @override
+  State<_FilterSheet> createState() => _FilterSheetState();
+}
+
+class _FilterSheetState extends State<_FilterSheet> {
+  late CatalogSort _sort = widget.currentSort;
+  late String? _tag = widget.currentTag;
+  late String? _pub = widget.currentPublisher;
+  late bool _complete = widget.completeOnly;
+
+  Widget _section(String label, Widget child) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(label,
+                style: const TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 2,
+                    color: CreamTokens.inkSoft,
+                    fontWeight: FontWeight.w600)),
+          ),
+          child,
+          const SizedBox(height: 14),
+        ],
+      );
+
+  Widget _choiceChips<T>({
+    required List<(T?, String)> options,
+    required T? current,
+    required void Function(T?) onPick,
+  }) =>
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final (v, label) in options)
+            ChoiceChip(
+              label: Text(label, style: const TextStyle(fontSize: 12)),
+              selected: current == v,
+              onSelected: (_) => onPick(current == v ? null : v),
+            ),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.catalog;
+    final publishers = c.allPublishers(limit: 18);
+    final tags = c.allTags(limit: 40);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  const Text('筛选',
+                      style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          fontFamily: 'Songti',
+                          letterSpacing: 2)),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => widget.onApply(
+                        CatalogSort.popular, null, null, false),
+                    child: const Text('重置'),
+                  ),
+                ],
+              ),
+              _section(
+                '排行',
+                _choiceChips<CatalogSort>(
+                  options: const [
+                    (CatalogSort.popular, '默认书序'),
+                    (CatalogSort.update, '最近更新'),
+                    (CatalogSort.length, '字数最多'),
+                  ],
+                  current: _sort,
+                  onPick: (v) => setState(() => _sort = v ?? CatalogSort.popular),
+                ),
+              ),
+              _section(
+                '出版文库',
+                _choiceChips<String>(
+                  options: [
+                    for (final (p, n) in publishers) (p, '$p · $n'),
+                  ],
+                  current: _pub,
+                  onPick: (v) => setState(() => _pub = v),
+                ),
+              ),
+              _section(
+                '标签',
+                _choiceChips<String>(
+                  options: [
+                    for (final (t, n) in tags) (t, '$t · $n'),
+                  ],
+                  current: _tag,
+                  onPick: (v) => setState(() => _tag = v),
+                ),
+              ),
+              _section(
+                '状态',
+                Row(
+                  children: [
+                    Switch(
+                      value: _complete,
+                      onChanged: (v) => setState(() => _complete = v),
+                    ),
+                    const Text('只看完结',
+                        style:
+                            TextStyle(fontSize: 13, color: CreamTokens.ink)),
+                  ],
+                ),
+              ),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: Colors.black),
+                  onPressed: () => widget.onApply(_sort, _tag, _pub, _complete),
+                  child: const Text('应用筛选'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- 书单页（分类/排行/文库/作者/标签 书籍列表） ----------------
+
+/// 书单页数据源。四选一：catalogFilter（分类/排行/文库）、author、tag、search。
+class CatalogListPage extends StatelessWidget {
+  final NovelCatalog catalog;
+  final String title;
+  final String serial; // 左上角编号，如 03 / RANK
+  final CatalogFilter? filter;
+  final String? author;
+  final String? tag;
+  final String? searchKeyword;
+  final Wenku8Api api;
+  final BookshelfService shelf;
+  final TtsService? tts;
+  final SettingsService? settingsService;
+
+  const CatalogListPage({
+    super.key,
+    required this.catalog,
+    required this.title,
+    required this.serial,
+    required this.api,
+    required this.shelf,
+    this.filter,
+    this.author,
+    this.tag,
+    this.searchKeyword,
+    this.tts,
+    this.settingsService,
+  });
+
+  List<CatalogEntry> get _entries {
+    if (author != null) {
+      final n = normalizeCjk(author!);
+      return catalog.entries
+          .where((e) => normalizeCjk(e.author) == n)
+          .toList()
+        ..sort((a, b) => (b.lastUpdate ?? '').compareTo(a.lastUpdate ?? ''));
+    }
+    if (tag != null) {
+      final n = normalizeCjk(tag!);
+      return catalog.entries
+          .where((e) => e.tags.any((t) => normalizeCjk(t) == n))
+          .toList()
+        ..sort((a, b) => (b.lastUpdate ?? '').compareTo(a.lastUpdate ?? ''));
+    }
+    if (searchKeyword != null) return catalog.search(searchKeyword!, limit: 500);
+    final f = filter!;
+    return catalog.listPage(
+      sort: f.sort,
+      tag: f.tag,
+      publish: f.publish,
+      status: f.status,
+      pageSize: 1 << 30,
+    );
+  }
+
+  void _openDetail(BuildContext context, CatalogEntry e) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BookDetailPage(
+        api: api,
+        shelf: shelf,
+        tts: tts,
+        settingsService: settingsService,
+        book: e.toBook(),
+        catalog: catalog,
+      ),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _entries;
+    return Scaffold(
+      backgroundColor: CreamTokens.bgBase,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black,
+        title: Text('$serial   $title',
+            style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Colors.black,
+                fontFamily: 'Songti')),
+      ),
+      body: entries.isEmpty
+          ? const Center(
+              child: Text('没有符合条件的书',
+                  style: TextStyle(color: CreamTokens.inkSoft)))
+          : ListView.builder(
+              padding: const EdgeInsets.all(20),
+              itemCount: entries.length,
+              itemBuilder: (context, i) {
+                final e = entries[i];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ArchiveCard(
+                    serial: 'A-${e.aid}',
+                    title: e.title,
+                    subtitle:
+                        '${e.author} · ${e.status} · ${e.publish.isEmpty ? "未知文库" : e.publish}',
+                    tags: e.tags.take(4).toList(),
+                    onTap: () => _openDetail(context, e),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// 分类筛选描述。
+class CatalogFilter {
+  final CatalogSort sort;
+  final String? tag;
+  final String? publish;
+  final String? status;
+  const CatalogFilter({this.sort = CatalogSort.popular, this.tag, this.publish, this.status});
 }
 
 // ---------------- 书架页 ----------------
@@ -471,6 +866,8 @@ class ShelfPage extends StatelessWidget {
   final Wenku8Api api;
   final TtsService? tts;
   final SettingsService? settingsService;
+  // P5UEDGK 风格：书架可切换「立体书架 / 列表」视图
+  final NovelCatalog? catalog;
   const ShelfPage({
     super.key,
     required this.shelf,
@@ -478,6 +875,7 @@ class ShelfPage extends StatelessWidget {
     required this.api,
     this.tts,
     this.settingsService,
+    this.catalog,
   });
 
   @override
@@ -531,19 +929,63 @@ class ShelfPage extends StatelessWidget {
     );
   }
 
-  void _open(BuildContext context, String aid) {
+  /// 点书：有进度直接续读（P5UEDGK「点书直接续读」），否则进详情页。
+  /// M4 修复：无进度时直接用本地 entry.book 打开详情页（不再先下载全本 TXT）；
+  /// 续读下载失败时降级到详情页而非报错终止。
+  Future<void> _open(BuildContext context, String aid) async {
     final entry = shelf.get(aid);
     if (entry == null) return;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => BookDetailPage(
-        api: api,
-        shelf: shelf,
-        library: library,
-        tts: tts,
-        settingsService: settingsService,
-        book: entry.book,
-      ),
-    ));
+    if (entry.lastCid == null) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookDetailPage(
+          api: api,
+          shelf: shelf,
+          library: library,
+          tts: tts,
+          settingsService: settingsService,
+          book: entry.book,
+          catalog: catalog,
+        ),
+      ));
+      return;
+    }
+    try {
+      final (book, volumes) = await api.bookDetail(aid);
+      if (!context.mounted) return;
+      final flat = [for (final v in volumes) ...v.chapters];
+      Chapter? resume;
+      for (final c in flat) {
+        if (c.cid == entry.lastCid) resume = c;
+      }
+      resume ??= flat.firstOrNull;
+      if (resume == null) throw Wenku8Exception('本书未解析出章节');
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ReaderPage(
+          api: api,
+          shelf: shelf,
+          book: book,
+          chapter: resume!,
+          volumes: volumes,
+          library: library,
+          tts: tts,
+          settingsService: settingsService,
+        ),
+      ));
+    } catch (e) {
+      // 降级：打开详情页
+      if (!context.mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookDetailPage(
+          api: api,
+          shelf: shelf,
+          library: library,
+          tts: tts,
+          settingsService: settingsService,
+          book: entry.book,
+          catalog: catalog,
+        ),
+      ));
+    }
   }
 }
 
@@ -604,18 +1046,112 @@ class _LibraryPageState extends State<LibraryPage> {
       stream: widget.shelf.stream,
       builder: (context, snap) {
         final entries = snap.data ?? widget.shelf.entries;
+        // 阅读历史 = 书架按 lastReadAt 倒序
+        final history = entries.toList()
+          ..sort((a, b) => b.lastReadAt.compareTo(a.lastReadAt));
         return Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-          const ArchiveHeader(title: '本地书库', note: '离线缓存 · 常驻可读'),
+          const ArchiveHeader(title: '本地书库', note: '离线缓存 · 阅读历史 · 缓存管理'),
           const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text('缓存占用 ${_fmt(_size)}',
-                style: const TextStyle(color: CreamTokens.inkSoft, fontSize: 12)),
+          Row(
+            children: [
+              Text('缓存占用 ${_fmt(_size)}',
+                  style: const TextStyle(
+                      color: CreamTokens.inkSoft, fontSize: 12)),
+              const Spacer(),
+              // 清空全部缓存
+              TextButton.icon(
+                onPressed: _size == null || _size == 0
+                    ? null
+                    : () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('清空全部缓存'),
+                            content: const Text('将删除所有离线章节（阅读进度保留），确定？'),
+                            actions: [
+                              TextButton(
+                                  onPressed: () => Navigator.pop(ctx, false),
+                                  child: const Text('取消')),
+                              FilledButton(
+                                  onPressed: () => Navigator.pop(ctx, true),
+                                  child: const Text('清空')),
+                            ],
+                          ),
+                        );
+                        if (ok == true && context.mounted) {
+                          await widget.library.cache.clearAll();
+                          _refreshSize();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('缓存已清空')));
+                          }
+                        }
+                      },
+                icon: const Icon(Icons.delete_sweep, size: 16),
+                label: const Text('清空缓存', style: TextStyle(fontSize: 12)),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          // 阅读历史区
+          if (history.isNotEmpty) ...[
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('阅读历史',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: CreamTokens.ink)),
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              height: 84,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: history.length,
+                itemBuilder: (context, i) {
+                  final e = history[i];
+                  final dt = DateTime.fromMillisecondsSinceEpoch(e.lastReadAt);
+                  return Container(
+                    width: 150,
+                    margin: const EdgeInsets.only(right: 10),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: CreamTokens.glassBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(e.book.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: CreamTokens.ink)),
+                        const Spacer(),
+                        Text('${e.lastChapterTitle ?? "未开始"}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 10, color: CreamTokens.inkSoft)),
+                        Text(
+                            '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, "0")}:${dt.minute.toString().padLeft(2, "0")}',
+                            style: const TextStyle(
+                                fontSize: 9, color: CreamTokens.inkSoft)),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           Expanded(
             child: ListView(
               children: [
@@ -628,6 +1164,18 @@ class _LibraryPageState extends State<LibraryPage> {
                       subtitle:
                           '最后阅读：${e.lastChapterTitle ?? '未开始'}',
                       tags: const ['离线'],
+                      trailing: IconButton(
+                        tooltip: '清除本书缓存',
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        onPressed: () async {
+                          await widget.library.removeBook(e.book.aid);
+                          _refreshSize();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text('已清除《${e.book.title}》缓存')));
+                          }
+                        },
+                      ),
                       onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (_) => BookDetailPage(
@@ -662,6 +1210,7 @@ class BookDetailPage extends StatefulWidget {
   final TtsService? tts;
   final SettingsService? settingsService;
   final Book book;
+  final NovelCatalog? catalog; // 有目录时支持作者/标签书单跳转
   const BookDetailPage({
     super.key,
     required this.api,
@@ -670,6 +1219,7 @@ class BookDetailPage extends StatefulWidget {
     this.tts,
     this.settingsService,
     required this.book,
+    this.catalog,
   });
 
   @override
@@ -777,9 +1327,48 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('${b.author.isEmpty ? "佚名" : b.author}  ·  ${b.status ?? "未知"}',
-                          style: const TextStyle(
-                              fontSize: 13, color: CreamTokens.ink)),
+                      // 作者可点击 → 作者书单
+                      GestureDetector(
+                        onTap: widget.catalog == null
+                            ? null
+                            : () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => CatalogListPage(
+                                      catalog: widget.catalog!,
+                                      title: '${b.author} 的作品',
+                                      serial: 'A / AUTHOR',
+                                      author: b.author,
+                                      api: widget.api,
+                                      shelf: widget.shelf,
+                                      tts: widget.tts,
+                                      settingsService: widget.settingsService,
+                                    ),
+                                  ),
+                                ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                  '${b.author.isEmpty ? "佚名" : b.author}  ·  ${b.status ?? "未知"}',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      color: widget.catalog == null
+                                          ? CreamTokens.ink
+                                          : Colors.black,
+                                      decoration: widget.catalog == null
+                                          ? TextDecoration.none
+                                          : TextDecoration.underline)),
+                            ),
+                            if (widget.catalog != null) ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.arrow_forward_ios,
+                                  size: 10, color: CreamTokens.inkSoft),
+                            ],
+                          ],
+                        ),
+                      ),
+                      // 文库可点击
                       if (b.pubAgent != null && b.pubAgent!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -787,6 +1376,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                               style: const TextStyle(
                                   fontSize: 12, color: CreamTokens.inkSoft)),
                         ),
+                      // 标签可点击 → 标签书单
                       if (b.catalogs.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
@@ -795,18 +1385,37 @@ class _BookDetailPageState extends State<BookDetailPage> {
                             runSpacing: 6,
                             children: [
                               for (final t in b.catalogs.take(6))
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black,
-                                    borderRadius: BorderRadius.circular(3),
+                                GestureDetector(
+                                  onTap: widget.catalog == null
+                                      ? null
+                                      : () => Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => CatalogListPage(
+                                                catalog: widget.catalog!,
+                                                title: '标签：$t',
+                                                serial: 'T / TAG',
+                                                tag: t,
+                                                api: widget.api,
+                                                shelf: widget.shelf,
+                                                tts: widget.tts,
+                                                settingsService:
+                                                    widget.settingsService,
+                                              ),
+                                            ),
+                                          ),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: Text(t,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            letterSpacing: 1)),
                                   ),
-                                  child: Text(t,
-                                      style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          letterSpacing: 1)),
                                 ),
                             ],
                           ),
@@ -968,6 +1577,127 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 }
 
+// ---------------- 章内查找弹层 ----------------
+
+class _ChapterSearchSheet extends StatefulWidget {
+  final List<String> paragraphs;
+  const _ChapterSearchSheet({required this.paragraphs});
+
+  @override
+  State<_ChapterSearchSheet> createState() => _ChapterSearchSheetState();
+}
+
+class _ChapterSearchSheetState extends State<_ChapterSearchSheet> {
+  final _ctrl = TextEditingController();
+  List<(int, String)> _hits = [];
+  String _lastKw = '';
+
+  void _run(String kw) {
+    final k = kw.trim();
+    if (k.isEmpty) {
+      setState(() {
+        _hits = [];
+        _lastKw = k;
+      });
+      return;
+    }
+    final nk = normalizeCjk(k.toLowerCase());
+    final out = <(int, String)>[];
+    for (var i = 0; i < widget.paragraphs.length; i++) {
+      final p = widget.paragraphs[i];
+      if (normalizeCjk(p.toLowerCase()).contains(nk)) {
+        out.add((i, p));
+        if (out.length >= 100) break;
+      }
+    }
+    setState(() {
+      _hits = out;
+      _lastKw = k;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            onChanged: _run,
+            decoration: InputDecoration(
+              hintText: '本章内查找…（简繁均可）',
+              prefixIcon: const Icon(Icons.search),
+              suffixText: _lastKw.isEmpty
+                  ? null
+                  : '${_hits.length} 处',
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              isDense: true,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (_hits.isNotEmpty)
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _hits.length,
+                itemBuilder: (context, i) {
+                  final (idx, p) = _hits[i];
+                  return ListTile(
+                    dense: true,
+                    leading: Text('P${idx + 1}',
+                        style: const TextStyle(
+                            fontSize: 11, color: CreamTokens.inkSoft)),
+                    title: _highlight(p, _lastKw),
+                    onTap: () => Navigator.pop(context, idx),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 返回带高亮 span 的 Text.rich —— 用 TextSpan 简单实现。
+  Text _highlight(String p, String kw) {
+    if (kw.isEmpty) return Text(p);
+    final lower = normalizeCjk(p.toLowerCase());
+    final nk = normalizeCjk(kw.toLowerCase());
+    final spans = <TextSpan>[];
+    var start = 0;
+    while (true) {
+      final hit = lower.indexOf(nk, start);
+      if (hit < 0) {
+        spans.add(TextSpan(text: p.substring(start)));
+        break;
+      }
+      // 归一化后长度可能与原文不同，取原文等长近似（中文一对一映射为主）
+      spans.add(TextSpan(text: p.substring(start, hit)));
+      spans.add(TextSpan(
+          text: p.substring(hit,
+              (hit + nk.length).clamp(0, p.length)),
+          style: const TextStyle(
+              backgroundColor: Color(0x33B4884A),
+              fontWeight: FontWeight.w700)));
+      start = hit + nk.length;
+      if (spans.length > 40) {
+        // M9 修复：截断后补上剩余文本，不再丢尾
+        spans.add(TextSpan(text: p.substring(start.clamp(0, p.length))));
+        break;
+      }
+    }
+    return Text.rich(TextSpan(
+        style: const TextStyle(fontSize: 13, color: CreamTokens.ink),
+        children: spans));
+  }
+}
+
+// ---------------- 章内查找弹层结束 ----------------
+
 // ---------------- 阅读页（含听书控制） ----------------
 
 class ReaderPage extends StatefulWidget {
@@ -1001,6 +1731,11 @@ class _ReaderPageState extends State<ReaderPage> {
   late Chapter _chapter = widget.chapter;
   // M4 修复：初始值取持久化设置
   late ReaderSettings _settings = _loadSettings();
+  Timer? _sleepTimer;
+  Duration? _sleepRemaining;
+  int? _visibleParagraph; // 当前可见段（加书签用，不触发跳段）
+  int? _bookmarkJumpTarget; // 书签/查找跳段目标（消费后清空）
+  BookmarkService? _bookmarkSvc;
 
   ReaderSettings _loadSettings() {
     final s = widget.settingsService;
@@ -1017,6 +1752,204 @@ class _ReaderPageState extends State<ReaderPage> {
   void initState() {
     super.initState();
     _loadChapter();
+    _initBookmarks();
+  }
+
+  Future<void> _initBookmarks() async {
+    final svc = BookmarkService();
+    await svc.load();
+    if (!mounted) return;
+    setState(() => _bookmarkSvc = svc);
+  }
+
+  @override
+  void dispose() {
+    _sleepTimer?.cancel();
+    super.dispose();
+  }
+
+  // ------- 睡眠定时 -------
+  void _pickSleepTimer() {
+    final options = <(int, String)>[
+      (5, '5 分钟'),
+      (15, '15 分钟'),
+      (30, '30 分钟'),
+      (60, '60 分钟'),
+    ];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CreamTokens.bgBase,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_sleepTimer != null)
+              ListTile(
+                leading: const Icon(Icons.timer_off),
+                title: Text('取消定时（剩余 ${_sleepRemaining!.inMinutes} 分钟）'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _cancelSleep();
+                },
+              ),
+            for (final (m, label) in options)
+              ListTile(
+                leading: const Icon(Icons.timer_outlined),
+                title: Text('分钟后停止：$label'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _startSleep(Duration(minutes: m));
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _startSleep(Duration d) {
+    _sleepTimer?.cancel();
+    setState(() => _sleepRemaining = d);
+    _sleepTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return t.cancel();
+      final remain = d - Duration(seconds: t.tick.toInt());
+      if (remain <= Duration.zero) {
+        t.cancel();
+        _sleepTimer = null;
+        widget.tts?.stop();
+        if (mounted) setState(() => _sleepRemaining = null);
+      } else {
+        setState(() => _sleepRemaining = remain);
+      }
+    });
+  }
+
+  void _cancelSleep() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    setState(() => _sleepRemaining = null);
+  }
+
+  // ------- 书签 -------
+  Future<void> _addBookmark() async {
+    final svc = _bookmarkSvc;
+    if (svc == null || _content == null) return;
+    final ps = paragraphs(_content!);
+    // C2 修复：空章节直接提示，避免 clamp(0,-1) 崩溃
+    if (ps.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('本页没有可定位的段落')));
+      return;
+    }
+    final idx = (_visibleParagraph ?? 0).clamp(0, ps.length - 1);
+    final excerpt = ps[idx];
+    final bm = Bookmark(
+      aid: _chapter.aid,
+      cid: _chapter.cid,
+      chapterTitle: _chapter.title,
+      excerpt: excerpt.length > 60 ? '${excerpt.substring(0, 60)}…' : excerpt,
+      paragraphIndex: idx,
+      createdAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await svc.add(bm);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('书签已加：第 ${idx + 1} 段')));
+    setState(() {});
+  }
+
+  void _showBookmarks() {
+    final svc = _bookmarkSvc;
+    if (svc == null) return;
+    final items = svc.forBook(widget.book.aid);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CreamTokens.bgBase,
+      builder: (ctx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) => SafeArea(
+          child: items.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(
+                      child: Text('本书还没有书签',
+                          style: TextStyle(color: CreamTokens.inkSoft))),
+                )
+              : ListView(
+                  shrinkWrap: true,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('书签',
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              fontFamily: 'Songti')),
+                    ),
+                    for (final bm in items)
+                      ListTile(
+                        leading: const Icon(Icons.bookmark, color: CreamTokens.accent),
+                        title: Text(bm.excerpt,
+                            maxLines: 2, overflow: TextOverflow.ellipsis),
+                        subtitle: Text(
+                            '${bm.chapterTitle} · 段 ${bm.paragraphIndex + 1}',
+                            style: const TextStyle(fontSize: 11)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          // minor6 修复：删除后留在弹层内刷新
+                          onPressed: () async {
+                            await svc.remove(bm.aid, bm.cid, bm.paragraphIndex);
+                            setSheet(() {
+                              items.remove(bm);
+                            });
+                            if (mounted) setState(() {});
+                          },
+                        ),
+                        onTap: () {
+                          Navigator.pop(sheetCtx);
+                          if (bm.cid != _chapter.cid) {
+                            final flat = [
+                              for (final v in widget.volumes) ...v.chapters
+                            ];
+                            final target =
+                                flat.where((c) => c.cid == bm.cid).firstOrNull;
+                            if (target != null) {
+                              // M8 修复：换章时携带段索引
+                              setState(() => _bookmarkJumpTarget = bm.paragraphIndex);
+                              _jumpTo(target);
+                            }
+                          } else {
+                            // M2 修复：通过跳段通道定位
+                            setState(() => _bookmarkJumpTarget = bm.paragraphIndex);
+                          }
+                        },
+                      ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  // ------- 章内查找 -------
+  Future<void> _showSearch() async {
+    if (_content == null) return;
+    final ps = paragraphs(_content!);
+    final idx = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: CreamTokens.bgBase,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: SafeArea(
+          child: _ChapterSearchSheet(paragraphs: ps),
+        ),
+      ),
+    );
+    // M3 修复：点击搜索结果后真正跳段
+    if (idx != null && mounted) {
+      setState(() => _bookmarkJumpTarget = idx);
+    }
   }
 
   Future<void> _loadChapter() async {
@@ -1055,7 +1988,10 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   void _jumpTo(Chapter c) {
-    setState(() => _chapter = c);
+    setState(() {
+      _chapter = c;
+      _visibleParagraph = null;
+    });
     _loadChapter();
   }
 
@@ -1072,6 +2008,34 @@ class _ReaderPageState extends State<ReaderPage> {
                 color: CreamTokens.ink,
                 fontWeight: FontWeight.w600)),
         actions: [
+          // 睡眠定时
+          IconButton(
+            tooltip: _sleepRemaining != null
+                ? '睡眠定时 剩余${_sleepRemaining!.inMinutes.clamp(1, 999)}分'
+                : '睡眠定时',
+            onPressed: widget.tts == null ? null : _pickSleepTimer,
+            icon: Icon(_sleepRemaining != null
+                ? Icons.timer
+                : Icons.timer_outlined),
+          ),
+          // 书签
+          IconButton(
+            tooltip: '书签',
+            onPressed: _bookmarkSvc == null ? null : _showBookmarks,
+            icon: const Icon(Icons.bookmark_border),
+          ),
+          // 添加书签（当前段）
+          IconButton(
+            tooltip: '加书签',
+            onPressed: _content == null ? null : _addBookmark,
+            icon: const Icon(Icons.bookmark_add_outlined),
+          ),
+          // 章内查找
+          IconButton(
+            tooltip: '章内查找',
+            onPressed: _content == null ? null : _showSearch,
+            icon: const Icon(Icons.search),
+          ),
           if (widget.tts != null)
             IconButton(
               tooltip: '听书',
@@ -1101,6 +2065,14 @@ class _ReaderPageState extends State<ReaderPage> {
                   onSettingsChanged: _updateSettings,
                   onPrevChapter: () => _step(-1),
                   onNextChapter: () => _step(1),
+                  aid: widget.book.aid,
+                  cid: _chapter.cid,
+                  bookmarkService: _bookmarkSvc,
+                  onParagraphVisible: (i) {
+                    // M2 修复：纯记录，不回灌 initialParagraph（避免重建时误跳）
+                    _visibleParagraph = i;
+                  },
+                  initialParagraph: _bookmarkJumpTarget,
                 ),
     );
   }
