@@ -1,6 +1,7 @@
 /// 数据模型。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -167,6 +168,76 @@ class ShelfEntry {
         lastPosition: (j['lastPosition'] as num?)?.toInt() ?? 0,
         lastReadAt: (j['lastReadAt'] as num?)?.toInt() ?? 0,
       );
+}
+
+/// 应用级设置（性能开关 / TTS / WebDAV 由各自服务持久化）。
+class AppPrefs {
+  final bool glassEnabled; // 玻璃折射（BackdropFilter）
+  final bool blurEnabled; // 模糊
+  final bool animationsEnabled; // 动效
+  final bool lowPerfMode; // 低性能设备模式（全部关闭）
+  const AppPrefs({
+    this.glassEnabled = true,
+    this.blurEnabled = true,
+    this.animationsEnabled = true,
+    this.lowPerfMode = false,
+  });
+
+  AppPrefs copyWith({
+    bool? glassEnabled,
+    bool? blurEnabled,
+    bool? animationsEnabled,
+    bool? lowPerfMode,
+  }) =>
+      AppPrefs(
+        glassEnabled: glassEnabled ?? this.glassEnabled,
+        blurEnabled: blurEnabled ?? this.blurEnabled,
+        animationsEnabled: animationsEnabled ?? this.animationsEnabled,
+        lowPerfMode: lowPerfMode ?? this.lowPerfMode,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'glass': glassEnabled,
+        'blur': blurEnabled,
+        'anim': animationsEnabled,
+        'lowPerf': lowPerfMode,
+      };
+
+  factory AppPrefs.fromJson(Map<String, dynamic> j) => AppPrefs(
+        glassEnabled: j['glass'] as bool? ?? true,
+        blurEnabled: j['blur'] as bool? ?? true,
+        animationsEnabled: j['anim'] as bool? ?? true,
+        lowPerfMode: j['lowPerf'] as bool? ?? false,
+      );
+}
+
+/// 应用偏好持久化。
+class AppPrefsService {
+  static const _key = 'app_prefs_v1';
+  AppPrefs _prefs = const AppPrefs();
+  AppPrefs get prefs => _prefs;
+  final _ctrl = StreamController<AppPrefs>.broadcast();
+  Stream<AppPrefs> get stream => _ctrl.stream;
+
+  Future<void> load() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_key);
+      if (raw != null) {
+        _prefs = AppPrefs.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        _ctrl.add(_prefs);
+      }
+    } catch (_) {
+      _prefs = const AppPrefs();
+    }
+  }
+
+  Future<void> update(AppPrefs p) async {
+    _prefs = p;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_key, jsonEncode(p.toJson()));
+    _ctrl.add(p);
+  }
 }
 
 /// 书签。

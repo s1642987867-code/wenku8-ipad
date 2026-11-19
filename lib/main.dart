@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -5,8 +6,11 @@ import 'package:path_provider/path_provider.dart';
 
 import 'api/wenku8_api.dart';
 import 'api/novel_catalog.dart';
+import 'models/models.dart';
 import 'pages/pages.dart';
+import 'pages/settings.dart';
 import 'services/services.dart';
+import 'services/webdav.dart';
 import 'ui/design_system.dart';
 
 Future<void> main() async {
@@ -19,6 +23,10 @@ Future<void> main() async {
   final library = LocalLibraryService(api, ContentCache(cacheRoot));
   final settings = SettingsService();
   await settings.load();
+  final prefsService = AppPrefsService();
+  await prefsService.load();
+  final webdav = WebDavService();
+  await webdav.load();
   final tts = TtsService();
 
   runApp(Wenku8App(
@@ -26,6 +34,8 @@ Future<void> main() async {
     shelf: shelf,
     library: library,
     settings: settings,
+    prefsService: prefsService,
+    webdav: webdav,
     tts: tts,
   ));
 }
@@ -42,6 +52,8 @@ class Wenku8App extends StatelessWidget {
   final BookshelfService shelf;
   final LocalLibraryService library;
   final SettingsService settings;
+  final AppPrefsService prefsService;
+  final WebDavService webdav;
   final TtsService tts;
   const Wenku8App({
     super.key,
@@ -49,6 +61,8 @@ class Wenku8App extends StatelessWidget {
     required this.shelf,
     required this.library,
     required this.settings,
+    required this.prefsService,
+    required this.webdav,
     required this.tts,
   });
 
@@ -82,6 +96,8 @@ class _HomeShell extends StatefulWidget {
 class _HomeShellState extends State<_HomeShell> {
   int _tab = 0;
   NovelCatalog? _catalog;
+  StreamSubscription? _prefsSub;
+  AppPrefs _prefs = const AppPrefs();
 
   @override
   void initState() {
@@ -89,6 +105,19 @@ class _HomeShellState extends State<_HomeShell> {
     NovelCatalog.load().then((c) {
       if (mounted) setState(() => _catalog = c);
     }).catchError((_) {});
+    final app = context.findAncestorWidgetOfExactType<Wenku8App>();
+    if (app != null) {
+      _prefs = app.prefsService.prefs;
+      _prefsSub = app.prefsService.stream.listen((p) {
+        if (mounted) setState(() => _prefs = p);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _prefsSub?.cancel();
+    super.dispose();
   }
 
   @override
@@ -96,6 +125,11 @@ class _HomeShellState extends State<_HomeShell> {
     final size = MediaQuery.of(context).size;
     final wide = size.width > 700; // iPad 横屏侧栏布局
     final app = context.findAncestorWidgetOfExactType<Wenku8App>()!;
+
+    // 性能开关全局生效（M1 修复：玻璃折射开关接线）
+    GlassPrefs.enabled =
+        !_prefs.lowPerfMode && _prefs.glassEnabled && _prefs.blurEnabled;
+    final noAnim = _prefs.lowPerfMode || !_prefs.animationsEnabled;
 
     final pages = [
       DiscoverPage(
@@ -116,6 +150,15 @@ class _HomeShellState extends State<_HomeShell> {
           api: app.api,
           tts: app.tts,
           settingsService: app.settings),
+      SettingsPage(
+        shelf: app.shelf,
+        library: app.library,
+        api: app.api,
+        prefsService: app.prefsService,
+        webdav: app.webdav,
+        tts: app.tts,
+        settingsService: app.settings,
+      ),
     ];
 
     final body = wide
@@ -141,6 +184,10 @@ class _HomeShellState extends State<_HomeShell> {
                         icon: Icon(Icons.library_books_outlined),
                         selectedIcon: Icon(Icons.library_books),
                         label: Text('本地书库')),
+                    NavigationRailDestination(
+                        icon: Icon(Icons.settings_outlined),
+                        selectedIcon: Icon(Icons.settings),
+                        label: Text('设置')),
                   ],
                 ),
               ),
@@ -170,20 +217,27 @@ class _HomeShellState extends State<_HomeShell> {
                       label: '书架'),
                   NavigationDestination(
                       icon: Icon(Icons.library_books_outlined),
+                      selectedIcon: Icon(Icons.library_books),
                       label: '本地书库'),
+                  NavigationDestination(
+                      icon: Icon(Icons.settings_outlined),
+                      selectedIcon: Icon(Icons.settings),
+                      label: '设置'),
                 ],
               ),
             ),
           );
 
-    // 奶白玻璃底 + 背景装饰
+    // 奶白玻璃底 + 背景装饰（noAnim 时去渐变动效层）
     return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [CreamTokens.bgBase, CreamTokens.bgDeep],
-        ),
+      decoration: BoxDecoration(
+        gradient: noAnim
+            ? const LinearGradient(colors: [CreamTokens.bgBase, CreamTokens.bgBase])
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [CreamTokens.bgBase, CreamTokens.bgDeep],
+              ),
       ),
       child: wide
           ? body

@@ -7,6 +7,11 @@ import 'package:flutter/material.dart';
 
 // ---------------- 奶白玻璃 ----------------
 
+/// 全局玻璃效果开关（性能设置联动，main.dart 每帧写入）。
+class GlassPrefs {
+  static bool enabled = true;
+}
+
 /// 奶白色主题令牌。
 class CreamTokens {
   static const bgBase = Color(0xFFF7F2EA); // 页面底色（奶白）
@@ -45,24 +50,29 @@ class CreamGlass extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = Container(
+      decoration: BoxDecoration(
+        color: CreamTokens.glassTint,
+        borderRadius: radius,
+        border: Border.all(color: CreamTokens.glassBorder),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0x14FFFFFF), Color(0x00000000)],
+        ),
+      ),
+      padding: padding,
+      child: child,
+    );
+    // GlassPrefs.enabled = false 时跳过 BackdropFilter（低性能模式）
+    if (!GlassPrefs.enabled) {
+      return ClipRRect(borderRadius: radius, child: content);
+    }
     return ClipRRect(
       borderRadius: radius,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: Container(
-          decoration: BoxDecoration(
-            color: CreamTokens.glassTint,
-            borderRadius: radius,
-            border: Border.all(color: CreamTokens.glassBorder),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0x14FFFFFF), Color(0x00000000)],
-            ),
-          ),
-          padding: padding,
-          child: child,
-        ),
+        child: content,
       ),
     );
   }
