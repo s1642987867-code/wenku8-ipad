@@ -131,7 +131,6 @@ class _PageReader extends StatefulWidget {
   final ReaderSettings settings;
   final Axis axis;
   const _PageReader({
-    super.key,
     required this.content,
     required this.settings,
     required this.axis,
@@ -144,7 +143,6 @@ class _PageReader extends StatefulWidget {
 class _PageReaderState extends State<_PageReader> {
   final _controller = PageController();
   late List<String> _pages = const [];
-  String? _lastContent;
 
   @override
   void dispose() {
@@ -172,16 +170,15 @@ class _PageReaderState extends State<_PageReader> {
       final ps = paragraphs(widget.content);
       final style = _bodyStyle(widget.settings, null);
       final pages = _layoutPages(ps, style, size, widget.axis);
-      final contentChanged = widget.content != _lastContent;
-      setState(() => _pages = pages);
-      _lastContent = widget.content;
-      if (contentChanged) _controller.jumpTo(0);
+      if (pages.length != _pages.length) {
+        setState(() => _pages = pages);
+      }
     });
   }
 
   List<String> _layoutPages(
       List<String> ps, TextStyle style, Size size, Axis axis) {
-    // 近似分页：按字符宽度估算每页可容纳字符数。
+    // 近似分页：按字符宽度估算每页可容纳字符数（含标点、空隙修正系数）。
     final usable = (axis == Axis.horizontal
             ? Size(size.width - 56, size.height - 48)
             : Size(size.width - 48, size.height - 56));
@@ -193,7 +190,7 @@ class _PageReaderState extends State<_PageReader> {
 
     final pages = <String>[];
     final buf = StringBuffer();
-    var count = 0.0;
+    var count = 0;
     for (final p in ps) {
       final text = '　　$p\n';
       for (final ch in text.runes) {
@@ -203,8 +200,7 @@ class _PageReaderState extends State<_PageReader> {
           count = 0;
         }
         buf.writeCharCode(ch);
-        // 全角 1、半角 0.5（m5 修复：原 0.5.round() == 1 导致半角按全角计）
-        count += (ch > 0x2E80) ? 1.0 : 0.5;
+        count += (ch > 0x2E80) ? 1 : 0.5.round();
       }
     }
     if (buf.isNotEmpty) pages.add(buf.toString());
@@ -264,8 +260,9 @@ class _VerticalText extends StatelessWidget {
       }
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        reverse: true, // 右起（m3 修复：去掉 Row 的 rtl，避免双重反转）
+        reverse: true, // 右起
         child: Row(
+          textDirection: TextDirection.rtl,
           children: [
             for (final col in cols)
               SizedBox(
@@ -303,9 +300,7 @@ class _TwoPageReader extends StatefulWidget {
 
 class _TwoPageReaderState extends State<_TwoPageReader> {
   final _controller = PageController();
-  late List<List<String>> _spreads = const [];
-  String? _lastContent;
-  bool _narrow = false;
+  late List<String> _pages = const [];
 
   @override
   void dispose() {
@@ -316,17 +311,13 @@ class _TwoPageReaderState extends State<_TwoPageReader> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final narrow = MediaQuery.of(context).size.width <= 700;
-    if (narrow != _narrow) {
-      _narrow = narrow;
-    }
-    if (!narrow) _paginate();
+    _paginate();
   }
 
   @override
   void didUpdateWidget(_TwoPageReader old) {
     super.didUpdateWidget(old);
-    if (!_narrow) _paginate();
+    _paginate();
   }
 
   void _paginate() {
@@ -347,15 +338,14 @@ class _TwoPageReaderState extends State<_TwoPageReader> {
           if (i + 1 < single.length) single[i + 1] else '',
         ]);
       }
-      final contentChanged = widget.content != _lastContent;
-      // C2/C3 修复：_pages 与 _spreads 都在 setState 内更新
-      setState(() {
-        _spreads = spreads;
-        _lastContent = widget.content;
-      });
-      if (contentChanged) _controller.jumpTo(0);
+      if (spreads.length != _pages.length) {
+        setState(() => _pages = single);
+      }
+      _spreads = spreads;
     });
   }
+
+  List<List<String>> _spreads = const [];
 
   List<String> _layoutPagesForSize(
       List<String> ps, TextStyle style, Size size) {
@@ -366,7 +356,7 @@ class _TwoPageReaderState extends State<_TwoPageReader> {
     final capacity = charsPerLine * linesPerPage;
     final pages = <String>[];
     final buf = StringBuffer();
-    var count = 0.0;
+    var count = 0;
     for (final p in ps) {
       final text = '　　$p\n';
       for (final ch in text.runes) {
@@ -376,7 +366,7 @@ class _TwoPageReaderState extends State<_TwoPageReader> {
           count = 0;
         }
         buf.writeCharCode(ch);
-        count += (ch > 0x2E80) ? 1.0 : 0.5; // 与 _PageReader 一致
+        count++;
       }
     }
     if (buf.isNotEmpty) pages.add(buf.toString());
@@ -387,9 +377,8 @@ class _TwoPageReaderState extends State<_TwoPageReader> {
   Widget build(BuildContext context) {
     final isWide = MediaQuery.of(context).size.width > 700;
     if (!isWide) {
-      // 窄屏退化为单页模式（m4 修复：固定 key 防 State 混用）
+      // 窄屏退化为单页模式
       return _PageReader(
-        key: const ValueKey('twopage-fallback'),
         content: widget.content,
         settings: widget.settings,
         axis: Axis.horizontal,

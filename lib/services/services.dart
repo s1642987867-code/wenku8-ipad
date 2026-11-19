@@ -52,14 +52,7 @@ class BookshelfService {
     final now = DateTime.now().millisecondsSinceEpoch;
     final idx = _entries.indexWhere((e) => e.book.aid == book.aid);
     if (idx >= 0) {
-      final e = _entries[idx];
-      // m6 修复：同一章重复打开时不重复写盘
-      if (e.lastCid == lastCid &&
-          e.lastChapterTitle == lastChapterTitle &&
-          (lastPosition == null || e.lastPosition == lastPosition)) {
-        return;
-      }
-      _entries[idx] = e.copyWith(
+      _entries[idx] = _entries[idx].copyWith(
         lastCid: lastCid,
         lastChapterTitle: lastChapterTitle,
         lastPosition: lastPosition,
@@ -253,12 +246,8 @@ class TtsService {
   }
 
   Future<void> resume() async {
-    // M7 修复：从当前段重新播报（原来 speak('') 不会续播）
-    if (_index < _paragraphs.length) {
-      await _speakCurrent();
-    } else {
-      _setState(TtsState.finished);
-    }
+    await _tts.speak('');
+    _setState(TtsState.playing);
   }
 
   Future<void> stop() async {

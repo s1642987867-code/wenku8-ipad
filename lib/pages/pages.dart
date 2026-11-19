@@ -14,9 +14,7 @@ import '../ui/reader.dart';
 class DiscoverPage extends StatefulWidget {
   final Wenku8Api api;
   final BookshelfService shelf;
-  final TtsService? tts;
-  final SettingsService? settingsService;
-  const DiscoverPage({super.key, required this.api, required this.shelf, this.tts, this.settingsService});
+  const DiscoverPage({super.key, required this.api, required this.shelf});
 
   @override
   State<DiscoverPage> createState() => _DiscoverPageState();
@@ -113,8 +111,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                 builder: (_) => BookDetailPage(
                                   api: widget.api,
                                   shelf: widget.shelf,
-                                  tts: widget.tts,
-                                  settingsService: widget.settingsService,
                                   book: b,
                                 ),
                               ),
@@ -138,8 +134,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                             builder: (_) => BookDetailPage(
                               api: widget.api,
                               shelf: widget.shelf,
-                              tts: widget.tts,
-                              settingsService: widget.settingsService,
                               book: b,
                             ),
                           ),
@@ -160,15 +154,11 @@ class ShelfPage extends StatelessWidget {
   final BookshelfService shelf;
   final LocalLibraryService library;
   final Wenku8Api api;
-  final TtsService? tts;
-  final SettingsService? settingsService;
   const ShelfPage({
     super.key,
     required this.shelf,
     required this.library,
     required this.api,
-    this.tts,
-    this.settingsService,
   });
 
   @override
@@ -230,8 +220,6 @@ class ShelfPage extends StatelessWidget {
         api: api,
         shelf: shelf,
         library: library,
-        tts: tts,
-        settingsService: settingsService,
         book: entry.book,
       ),
     ));
@@ -244,15 +232,11 @@ class LibraryPage extends StatefulWidget {
   final LocalLibraryService library;
   final BookshelfService shelf;
   final Wenku8Api api;
-  final TtsService? tts;
-  final SettingsService? settingsService;
   const LibraryPage({
     super.key,
     required this.library,
     required this.shelf,
     required this.api,
-    this.tts,
-    this.settingsService,
   });
 
   @override
@@ -265,20 +249,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void initState() {
     super.initState();
-    _refreshSize();
-  }
-
-  void _refreshSize() {
-    widget.library.sizeBytes().then((v) {
-      if (!mounted) return;
-      setState(() => _size = v);
-    });
-  }
-
-  @override
-  void didUpdateWidget(LibraryPage old) {
-    super.didUpdateWidget(old);
-    _refreshSize();
+    widget.library.sizeBytes().then((v) => setState(() => _size = v));
   }
 
   String _fmt(int? bytes) {
@@ -290,15 +261,11 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    // m5 修复：用 StreamBuilder 跟随书架变化（IndexedStack 下 State 不再销毁重建）
-    return StreamBuilder<List<ShelfEntry>>(
-      stream: widget.shelf.stream,
-      builder: (context, snap) {
-        final entries = snap.data ?? widget.shelf.entries;
-        return Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            children: [
+    final entries = widget.shelf.entries;
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
           const ArchiveHeader(title: '本地书库', note: '离线缓存 · 常驻可读'),
           const SizedBox(height: 8),
           Align(
@@ -325,8 +292,6 @@ class _LibraryPageState extends State<LibraryPage> {
                             api: widget.api,
                             shelf: widget.shelf,
                             library: widget.library,
-                            tts: widget.tts,
-                            settingsService: widget.settingsService,
                             book: e.book,
                           ),
                         ),
@@ -337,9 +302,7 @@ class _LibraryPageState extends State<LibraryPage> {
             ),
           ),
         ],
-          ),
-        );
-      },
+      ),
     );
   }
 }
@@ -350,16 +313,12 @@ class BookDetailPage extends StatefulWidget {
   final Wenku8Api api;
   final BookshelfService shelf;
   final LocalLibraryService? library;
-  final TtsService? tts;
-  final SettingsService? settingsService;
   final Book book;
   const BookDetailPage({
     super.key,
     required this.api,
     required this.shelf,
     this.library,
-    this.tts,
-    this.settingsService,
     required this.book,
   });
 
@@ -372,6 +331,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   List<Volume>? _volumes;
   String? _error;
   DownloadProgress? _dlProgress;
+  TtsService? _tts;
 
   @override
   void initState() {
@@ -382,13 +342,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
   Future<void> _load() async {
     try {
       final (book, volumes) = await widget.api.bookDetail(widget.book.aid);
-      if (!mounted) return;
       setState(() {
         _detail = book;
         _volumes = volumes;
       });
     } catch (e) {
-      if (!mounted) return;
       setState(() => _error = e.toString());
     }
   }
@@ -396,11 +354,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   Future<void> _downloadAll() async {
     if (widget.library == null || _volumes == null) return;
     await widget.library!.downloadBook(_detail ?? widget.book, _volumes!,
-        onProgress: (p) {
-          if (!mounted) return;
-          setState(() => _dlProgress = p);
-        });
-    if (!mounted) return;
+        onProgress: (p) => setState(() => _dlProgress = p));
     setState(() => _dlProgress = null);
   }
 
@@ -428,18 +382,9 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                       backgroundColor: CreamTokens.accent),
-                  onPressed: (_volumes == null ||
-                          _volumes!.every((v) => v.chapters.isEmpty))
+                  onPressed: _volumes == null
                       ? null
-                      : () {
-                          try {
-                            _openReader(context, firstChapterOf(_volumes!));
-                          } catch (e) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text(e.toString())),
-                            );
-                          }
-                        },
+                      : () => _openReader(context, firstChapterOf(_volumes!)),
                   icon: const Icon(Icons.menu_book),
                   label: const Text('开始阅读'),
                 ),
@@ -451,8 +396,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                       : '下载 ${(_dlProgress!.ratio * 100).toStringAsFixed(0)}%'),
                 ),
                 StreamBuilder<TtsState>(
-                  // M3 修复：使用全局注入的 tts 实例（原来 _tts 从未赋值，恒为 null）
-                  stream: widget.tts?.stateStream ?? const Stream.empty(),
+                  stream: _tts?.stateStream ?? const Stream.empty(),
                   builder: (context, s) => OutlinedButton.icon(
                     onPressed: _volumes == null
                         ? null
@@ -525,10 +469,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         }
       }
     }
-    for (final v in vols) {
-      if (v.chapters.isNotEmpty) return v.chapters.first;
-    }
-    throw Wenku8Exception('本书未解析出任何章节，无法阅读');
+    return vols.first.chapters.first;
   }
 
   void _openReader(BuildContext context, Chapter chapter) {
@@ -540,8 +481,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
         chapter: chapter,
         volumes: _volumes ?? const [],
         library: widget.library,
-        tts: widget.tts,
-        settingsService: widget.settingsService,
+        tts: _tts,
       ),
     ));
   }
@@ -561,7 +501,6 @@ class ReaderPage extends StatefulWidget {
   final List<Volume> volumes;
   final LocalLibraryService? library;
   final TtsService? tts;
-  final SettingsService? settingsService;
   const ReaderPage({
     super.key,
     required this.api,
@@ -571,7 +510,6 @@ class ReaderPage extends StatefulWidget {
     required this.volumes,
     this.library,
     this.tts,
-    this.settingsService,
   });
 
   @override
@@ -582,19 +520,7 @@ class _ReaderPageState extends State<ReaderPage> {
   String? _content;
   String? _error;
   late Chapter _chapter = widget.chapter;
-  // M4 修复：初始值取持久化设置
-  late ReaderSettings _settings = _loadSettings();
-
-  ReaderSettings _loadSettings() {
-    final s = widget.settingsService;
-    return s != null ? s.settings : const ReaderSettings();
-  }
-
-  void _updateSettings(ReaderSettings s) {
-    setState(() => _settings = s);
-    widget.settingsService?.update(s);
-  }
-  int _loadSeq = 0; // 章节加载竞态防护（M1）
+  late ReaderSettings _settings = const ReaderSettings();
 
   @override
   void initState() {
@@ -603,38 +529,30 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   Future<void> _loadChapter() async {
-    final seq = ++_loadSeq;
-    final chapter = _chapter; // 快照，防快速切换串章
     setState(() {
       _content = null;
       _error = null;
     });
     // 离线优先
     if (widget.library != null) {
-      final cached = await widget.library!.cache.get(chapter.aid, chapter.cid);
-      if (!mounted || seq != _loadSeq) return;
+      final cached = await widget.library!.cache.get(_chapter.aid, _chapter.cid);
       if (cached != null) {
         setState(() => _content = cached);
-        // M2 修复：缓存命中也保存进度
-        await widget.shelf.addOrUpdate(widget.book,
-            lastCid: chapter.cid, lastChapterTitle: chapter.title);
         return;
       }
     }
     try {
-      final text = await widget.api.chapterContent(chapter.aid, chapter.cid);
-      if (!mounted || seq != _loadSeq) return;
+      final text = await widget.api.chapterContent(_chapter.aid, _chapter.cid);
       if (widget.library != null) {
-        await widget.library!.cache.put(chapter.aid, chapter.cid, text);
+        await widget.library!.cache.put(_chapter.aid, _chapter.cid, text);
       }
       setState(() => _content = text);
     } catch (e) {
-      if (!mounted || seq != _loadSeq) return;
       setState(() => _error = e.toString());
     }
     // 记录进度
     await widget.shelf.addOrUpdate(widget.book,
-        lastCid: chapter.cid, lastChapterTitle: chapter.title);
+        lastCid: _chapter.cid, lastChapterTitle: _chapter.title);
   }
 
   void _jumpTo(Chapter c) {
@@ -681,7 +599,7 @@ class _ReaderPageState extends State<ReaderPage> {
                   title: _chapter.title,
                   content: _content!,
                   settings: _settings,
-                  onSettingsChanged: _updateSettings,
+                  onSettingsChanged: (s) => setState(() => _settings = s),
                   onPrevChapter: () => _step(-1),
                   onNextChapter: () => _step(1),
                 ),

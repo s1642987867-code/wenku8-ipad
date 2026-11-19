@@ -134,10 +134,8 @@ class Wenku8Api {
         r'|第[一二三四五六七八九十百千零〇\d]+章.*'
         r'|序章.*|序|序言.*|前言.*|prologue.*'
         r'|终章.*|尾声.*|epilogue.*'
-        r'|后记.*|附录.*|后日谈.*|特典.*|番外.*|OVA.*|短篇.*|SS.*|IF.*|间章.*'
-        r')$'
-        // 无卷前缀的整行章节标题（部分书 TXT 无卷结构）
-        r'|^(第[一二三四五六七八九十百千零〇\d]+章.*|\d+[\.．]\s*.+|序章.*|序|序言.*|前言.*|prologue.*|终章.*|尾声.*|epilogue.*|后记.*|附录.*|后日谈.*|特典.*|番外.*|OVA.*|短篇.*|SS.*|IF.*|间章.*|本文.*|正文.*|第一章.*|第一节.*)$',
+        r'|后记.*|附录.*|插图|插画.*|后日谈.*|特典.*|番外.*|OVA.*|短篇.*|SS.*|IF.*|间章.*'
+        r')$',
         caseSensitive: false);
     // 兜底：书名行（如 <Unnamed Memory 无名记忆>）
     final titleRe = RegExp(r'^\s*<(.+?)>\s*$');
@@ -161,14 +159,8 @@ class Wenku8Api {
       }
       final hm = headerRe.firstMatch(line);
       if (hm != null) {
-        // 组1=卷标题（有卷前缀格式），组2=章标题；无卷格式时整行落在 group(1)
-        final hasVolume = hm.group(2) != null;
-        final volTitle = hasVolume
-            ? hm.group(1)!.trim()
-            : '正文';
-        final chTitle = hasVolume
-            ? hm.group(2)!.trim()
-            : (hm.group(1)?.trim() ?? line);
+        final volTitle = hm.group(1)!.trim();
+        final chTitle = hm.group(2)!.trim();
         if (curVolTitle == null || curVolTitle != volTitle) {
           // 开新卷
           if (curChapter != null) closeChapter(curChapter, i);
@@ -191,15 +183,6 @@ class Wenku8Api {
       }
     }
     if (curChapter != null) closeChapter(curChapter, lines.length);
-
-    // 无卷结构的书：只有一个隐式"正文"卷，将其标题改为书名
-    if (volumes.length == 1 && volumes.first.title == '正文') {
-      volumes[0] = Volume(
-        vid: volumes.first.vid,
-        title: title.isEmpty ? '正文' : title,
-        chapters: volumes.first.chapters,
-      );
-    }
 
     if (title.isEmpty) {
       title = '文库作品 #$aid';
@@ -327,21 +310,14 @@ class _BookText {
 }
 
 /// 简单限速门：两次请求间隔 ≥ 1.2s，降低 429 风险。
-/// m10 修复：用串行队列保证并发调用也不突破间隔。
 class _RateGate {
   DateTime _last = DateTime.fromMillisecondsSinceEpoch(0);
-  Future<void> _chain = Future.value();
-  Future<void> wait() {
-    final task = _chain.then((_) async {
-      final now = DateTime.now();
-      final diff = now.difference(_last);
-      const min = Duration(milliseconds: 1200);
-      if (diff < min) await Future.delayed(min - diff);
-      _last = DateTime.now();
-    });
-    // 失败不影响后续排队
-    _chain = task.catchError((_) {});
-    return task;
+  Future<void> wait() async {
+    final now = DateTime.now();
+    final diff = now.difference(_last);
+    const min = Duration(milliseconds: 1200);
+    if (diff < min) await Future.delayed(min - diff);
+    _last = DateTime.now();
   }
 }
 

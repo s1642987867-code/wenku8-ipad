@@ -210,8 +210,7 @@ class ReaderSettings {
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
         fontSize: (j['fontSize'] as num?)?.toDouble() ?? 19,
         lineHeight: (j['lineHeight'] as num?)?.toDouble() ?? 1.8,
-        mode: ReaderMode.values[((j['mode'] as num?)?.toInt() ?? 1)
-            .clamp(0, ReaderMode.values.length - 1)],
+        mode: ReaderMode.values[(j['mode'] as num?)?.toInt() ?? 1],
         fontFamily: j['fontFamily'] as String? ?? 'Songti',
         theme: j['theme'] as String? ?? 'cream',
       );

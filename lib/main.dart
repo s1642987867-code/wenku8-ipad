@@ -88,23 +88,9 @@ class _HomeShellState extends State<_HomeShell> {
     final app = context.findAncestorWidgetOfExactType<Wenku8App>()!;
 
     final pages = [
-      DiscoverPage(
-          api: app.api,
-          shelf: app.shelf,
-          tts: app.tts,
-          settingsService: app.settings),
-      ShelfPage(
-          shelf: app.shelf,
-          library: app.library,
-          api: app.api,
-          tts: app.tts,
-          settingsService: app.settings),
-      LibraryPage(
-          library: app.library,
-          shelf: app.shelf,
-          api: app.api,
-          tts: app.tts,
-          settingsService: app.settings),
+      DiscoverPage(api: app.api, shelf: app.shelf),
+      ShelfPage(shelf: app.shelf, library: app.library, api: app.api),
+      LibraryPage(library: app.library, shelf: app.shelf, api: app.api),
     ];
 
     final body = wide
@@ -134,15 +120,12 @@ class _HomeShellState extends State<_HomeShell> {
                 ),
               ),
               const VerticalDivider(width: 1, color: CreamTokens.glassBorder),
-              Expanded(
-                // IndexedStack 保持各 tab 的 State（滚动位置、搜索结果不丢失）
-                child: IndexedStack(index: _tab, children: pages),
-              ),
+              Expanded(child: pages[_tab]),
             ],
           )
         : Scaffold(
             backgroundColor: Colors.transparent,
-            body: IndexedStack(index: _tab, children: pages),
+            body: pages[_tab],
             bottomNavigationBar: CreamGlass(
               radius: BorderRadius.zero,
               child: NavigationBar(
