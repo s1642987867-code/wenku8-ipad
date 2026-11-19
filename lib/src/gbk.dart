@@ -61,11 +61,13 @@ List<int> encodeGbk(String s) {
   final reverse = _reverseMap();
   final out = <int>[];
   for (final rune in s.runes) {
-    final cp = rune & 0xFFFF;
+    // m8 修复：增补平面字符（emoji 等）GBK 无对应，直接替换 '?'，不再截断低 16 位
     if (rune < 0x80) {
       out.add(rune);
+    } else if (rune > 0xFFFF) {
+      out.add(0x3F); // '?'
     } else {
-      final key = reverse[cp];
+      final key = reverse[rune];
       if (key != null) {
         out.add(int.parse(key.substring(0, 2), radix: 16));
         out.add(int.parse(key.substring(2, 4), radix: 16));
