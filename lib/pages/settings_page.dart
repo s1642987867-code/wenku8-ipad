@@ -8,6 +8,7 @@ import '../models/models.dart';
 import '../services/cache_service.dart';
 import '../services/local_import.dart';
 import '../services/services.dart';
+import '../services/webdav_service.dart';
 import 'login_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -17,6 +18,78 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  void _showWebDavSheet() {
+    final urlCtl = TextEditingController(text: WebDavService.instance.config?.url ?? '');
+    final userCtl = TextEditingController(text: WebDavService.instance.config?.username ?? '');
+    final passCtl = TextEditingController(text: WebDavService.instance.config?.password ?? '');
+    String _msg = '';
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20, right: 20, top: 20,
+              bottom: 20 + MediaQuery.of(sheetCtx).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('WebDAV 同步', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 12),
+                TextField(controller: urlCtl, decoration: const InputDecoration(
+                  labelText: '服务器地址', hintText: 'https://dav.jianguoyun.com/dav/')),
+                TextField(controller: userCtl, decoration: const InputDecoration(labelText: '账号')),
+                TextField(controller: passCtl, obscureText: true, decoration: const InputDecoration(labelText: '密码/应用密码')),
+                const SizedBox(height: 12),
+                if (_msg.isNotEmpty) Text(_msg, style: TextStyle(color: Colors.orange, fontSize: 12)),
+                const SizedBox(height: 12),
+                Wrap(spacing: 12, children: [
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      setSheet(() => _msg = '测试中...');
+                      await WebDavService.instance.save(WebDavConfig(
+                        url: urlCtl.text.trim(), username: userCtl.text.trim(), password: passCtl.text.trim()));
+                      final ok = await WebDavService.instance.testConnection();
+                      setSheet(() => _msg = ok ? '✓ 连接成功' : '✗ 连接失败（检查地址/账号/网络）');
+                    },
+                    child: const Text('保存并测试'),
+                  ),
+                  FilledButton(
+                    onPressed: () async {
+                      setSheet(() => _msg = '上传中...');
+                      try {
+                        final ok = await WebDavService.instance.uploadBackup();
+                        setSheet(() => _msg = ok ? '✓ 备份已上传' : '上传失败');
+                      } catch (e) {
+                        setSheet(() => _msg = '上传失败: $e');
+                      }
+                    },
+                    child: const Text('上传备份'),
+                  ),
+                  FilledButton.tonal(
+                    onPressed: () async {
+                      setSheet(() => _msg = '恢复中...');
+                      try {
+                        final n = await WebDavService.instance.downloadAndRestore();
+                        setSheet(() => _msg = '✓ 已恢复 $n 本书籍');
+                      } catch (e) {
+                        setSheet(() => _msg = '恢复失败: $e');
+                      }
+                    },
+                    child: const Text('从网盘恢复'),
+                  ),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = AuthService.instance;
@@ -155,6 +228,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败: $e')));
               }
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.cloud_sync),
+            title: const Text('WebDAV 网盘同步'),
+            subtitle: Text(WebDavService.instance.isConnected
+                ? '已配置：${WebDavService.instance.config!.url}'
+                : 'OpenList/坚果云等，上传/恢复备份'),
+            trailing: Icon(WebDavService.instance.isConnected ? Icons.check_circle : Icons.chevron_right,
+                color: WebDavService.instance.isConnected ? Colors.green : Colors.grey, size: 20),
+            onTap: () => _showWebDavSheet(),
           ),
           const Divider(),
           // 关于

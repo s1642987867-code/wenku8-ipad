@@ -10,6 +10,7 @@ import 'src/gbk.dart';
 import 'pages/main_page.dart';
 import 'services/local_import.dart';
 import 'services/services.dart';
+import 'services/webdav_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +47,7 @@ class _Wenku8AppState extends State<Wenku8App> {
       SettingsService.instance.load(),
       AuthService.instance.load(),
       LocalLibraryService.instance.load(),
+      WebDavService.instance.load(),
     ]);
 
     setState(() => _ready = true);
