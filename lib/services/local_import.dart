@@ -102,11 +102,12 @@ class LocalLibraryService {
 
   // ============ 文件选择 ============
   Future<List<PlatformFile>?> pickFiles() async {
-    return await FilePicker.platform.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['txt', 'epub', 'zip'],
       allowMultiple: true,
     );
+    return result?.files;
   }
 
   /// 分发导入
