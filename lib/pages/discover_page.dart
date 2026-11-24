@@ -262,7 +262,13 @@ class _BookGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (books.isEmpty) {
-      return const Center(child: Text('暂无数据', style: TextStyle(color: Colors.grey)));
+      return const Center(
+        child: Text(
+          '目录暂无数据\n试试「哔哩·月榜」在线书源\n或使用搜索页（本地热门书目兜底）',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.grey),
+        ),
+      );
     }
     return GridView.builder(
       controller: controller,

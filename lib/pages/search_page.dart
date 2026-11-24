@@ -29,11 +29,31 @@ class _SearchPageState extends State<SearchPage> {
     setState(() { _searching = true; _searched = true; _onlineError = null; });
 
     if (_online) {
+      // 哔哩在线搜索有验证码防护，无法爬虫直搜。
+      // 改为：关键词匹配内置热门书单；纯数字则按 nid 直达书页。
+      final kwTrim = kw.trim();
+      final nid = int.tryParse(kwTrim);
       try {
-        final books = await _lino.search(kw.trim());
-        setState(() { _results = books; _searching = false; });
+        if (nid != null) {
+          final book = await _lino.bookInfo(kwTrim);
+          setState(() { _results = [book]; _searching = false; });
+          return;
+        }
+        // 关键词：抓月榜+周榜，按标题过滤
+        final all = <Book>[];
+        for (final p in ['monthvisit', 'weekvisit', 'allvisit']) {
+          try { all.addAll(await _lino.ranking(period: p)); } catch (_) {}
+        }
+        final filtered = all.where((b) => b.title.contains(kwTrim) || kwTrim.contains(b.title)).toSet().toList();
+        setState(() {
+          _results = filtered;
+          _searching = false;
+          _onlineError = filtered.isEmpty
+              ? '哔哩轻小说在线搜索需验证码，当前仅支持：\n1. 输入书号(NID)直达，如 2725\n2. 从热门榜单中筛选\n试试「发现 → 哔哩·月榜」'
+              : null;
+        });
       } catch (e) {
-        setState(() { _results = []; _searching = false; _onlineError = '哔哩轻小说在线搜索不可用（可能是网络限制）。\n可切换到轻小说文库本地目录搜索。'; });
+        setState(() { _results = []; _searching = false; _onlineError = '哔哩轻小说连接失败：$e\n可切换到轻小说文库本地目录搜索。'; });
       }
     } else {
       final books = NovelCatalog.instance.search(kw.trim(), limit: 100).map((e) => e.toBook()).toList();
@@ -48,7 +68,7 @@ class _SearchPageState extends State<SearchPage> {
         title: TextField(
           controller: _controller,
           decoration: InputDecoration(
-            hintText: _online ? '搜索哔哩轻小说...' : '搜索书名或作者（本地 4328 本）...',
+            hintText: _online ? '哔哩书号直达 / 热门榜筛选...' : '搜索书名或作者（本地目录）...',
             border: InputBorder.none,
             suffixIcon: _controller.text.isNotEmpty
                 ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _controller.clear(); setState(() { _results = []; _searched = false; }); })
@@ -84,9 +104,9 @@ class _SearchPageState extends State<SearchPage> {
           ),
           Expanded(
             child: !_searched
-                ? Center(
+                : Center(
                     child: Text(
-                      _online ? '搜索哔哩轻小说 (linovelib.com)\n在线全书搜索' : '输入关键词搜索\n本地目录共 ${NovelCatalog.instance.count} 本书籍',
+                      _online ? '哔哩轻小说 (linovelib.com)\n输入书号(NID)直达 · 或关键词筛选热门榜' : '输入关键词搜索\n本地目录共 ${NovelCatalog.instance.count} 本书籍',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.grey),
                     ),
