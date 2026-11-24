@@ -382,7 +382,7 @@ class _BookCard extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                     decoration: BoxDecoration(
-                      color: isLino ? Colors.orange.withValues(alpha: 0.85) : Colors.blue.withValues(alpha: 0.85),
+                      color: isLino ? Colors.orange.withOpacity(0.85) : Colors.blue.withOpacity(0.85),
                       borderRadius: BorderRadius.circular(3),
                     ),
                     child: Text(
