@@ -141,7 +141,8 @@ class BackupService {
     final data = jsonEncode(_collect());
     final archive = Archive();
     final dataBytes = utf8.encode(data);
-    archive.addFile(ArchiveFile.bytes('backup.json', dataBytes, DateTime.now()));
+    archive.addFile(ArchiveFile('backup.json', dataBytes.length, DateTime.now())
+      ..content = dataBytes);
     final bytes = ZipEncoder().encode(archive)!;
     final path = await FilePicker.platform.saveFile(
       fileName: 'wenku8_backup_${DateTime.now().millisecondsSinceEpoch}.zip',
