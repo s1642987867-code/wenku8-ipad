@@ -3,6 +3,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
@@ -139,7 +140,7 @@ class BackupService {
 
   Future<String> exportToFile() async {
     final data = jsonEncode(_collect());
-    final dataBytes = utf8.encode(data);
+    final dataBytes = Uint8List.fromList(utf8.encode(data));
     final archive = Archive()
       ..addFile(ArchiveFile('backup.json', dataBytes.length, dataBytes));
     final bytes = ZipEncoder().encode(archive)!;
