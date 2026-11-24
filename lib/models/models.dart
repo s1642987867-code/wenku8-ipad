@@ -87,6 +87,18 @@ class Volume {
   final String title;
   final List<Chapter> chapters;
   const Volume({required this.vid, required this.title, this.chapters = const []});
+
+  Map<String, dynamic> toJson() => {
+        'vid': vid, 'title': title,
+        'chapters': chapters.map((c) => c.toJson()).toList(),
+      };
+
+  factory Volume.fromJson(Map<String, dynamic> j) => Volume(
+        vid: j['vid']?.toString() ?? 'v0',
+        title: j['title']?.toString() ?? '',
+        chapters: (j['chapters'] as List<dynamic>? ?? [])
+            .map((c) => Chapter.fromJson(c as Map<String, dynamic>)).toList(),
+      );
 }
 
 /// 章节
@@ -95,12 +107,36 @@ class Chapter {
   final String cid;
   final String title;
   final String? volumeTitle;
+  /// 本地章节正文（在线书为 null，TXT/EPUB 导入时填充）
+  final String? localContent;
+
   const Chapter({
     required this.aid,
     required this.cid,
     required this.title,
     this.volumeTitle,
+    this.localContent,
   });
+
+  Map<String, dynamic> toJson() => {
+        'aid': aid, 'cid': cid, 'title': title,
+        if (volumeTitle != null) 'volumeTitle': volumeTitle,
+        if (localContent != null) 'localContent': localContent,
+      };
+
+  factory Chapter.fromJson(Map<String, dynamic> j) => Chapter(
+        aid: j['aid']?.toString() ?? '',
+        cid: j['cid']?.toString() ?? '',
+        title: j['title']?.toString() ?? '',
+        volumeTitle: j['volumeTitle']?.toString(),
+        localContent: j['localContent']?.toString(),
+      );
+
+  Chapter copyWith({String? aid, String? cid, String? title, String? volumeTitle, String? localContent}) =>
+      Chapter(
+        aid: aid ?? this.aid, cid: cid ?? this.cid, title: title ?? this.title,
+        volumeTitle: volumeTitle ?? this.volumeTitle, localContent: localContent ?? this.localContent,
+      );
 }
 
 /// 书架条目（含阅读进度）

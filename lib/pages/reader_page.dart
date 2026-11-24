@@ -92,7 +92,10 @@ class _ReaderPageState extends State<ReaderPage> {
     try {
       final ch = _currentChapter;
       String content;
-      if (widget.book.source == BookSource.linovelib) {
+      if (ch.localContent != null) {
+        // 本地导入章节（TXT/EPUB）
+        content = ch.localContent!;
+      } else if (widget.book.source == BookSource.linovelib) {
         content = await _lino.chapter(widget.aid.substring(5), ch.cid);
       } else if (ch.cid.startsWith('w')) {
         content = await _scraper.chapter(widget.aid, ch.cid);

@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'api/novel_catalog.dart';
 import 'src/gbk.dart';
 import 'pages/main_page.dart';
+import 'services/local_import.dart';
 import 'services/services.dart';
 
 void main() {
@@ -44,6 +45,7 @@ class _Wenku8AppState extends State<Wenku8App> {
       BookmarkService.instance.load(),
       SettingsService.instance.load(),
       AuthService.instance.load(),
+      LocalLibraryService.instance.load(),
     ]);
 
     setState(() => _ready = true);
