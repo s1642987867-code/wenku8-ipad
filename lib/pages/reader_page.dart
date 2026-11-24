@@ -11,6 +11,7 @@ import '../api/wenku8_api.dart';
 import '../models/models.dart';
 import '../services/cache_service.dart';
 import '../services/services.dart';
+import '../services/tts_service.dart';
 
 class ReaderPage extends StatefulWidget {
   final String aid;
@@ -377,6 +378,7 @@ class _ReaderPageState extends State<ReaderPage> {
           leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
           actions: [
             IconButton(icon: const Icon(Icons.search), onPressed: _showSearchSheet, tooltip: '章内查找'),
+            IconButton(icon: const Icon(Icons.headphones_outlined), onPressed: _showTtsSheet, tooltip: '听书'),
             IconButton(icon: const Icon(Icons.download_outlined), onPressed: _cacheWholeBook, tooltip: '缓存全本'),
             IconButton(icon: const Icon(Icons.bookmark_add_outlined), onPressed: _addBookmark, tooltip: '添加书签'),
             IconButton(icon: const Icon(Icons.bookmarks_outlined), onPressed: _showBookmarks, tooltip: '书签列表'),
@@ -530,6 +532,115 @@ class _ReaderPageState extends State<ReaderPage> {
       isScrollControlled: true,
       builder: (_) => const ReaderSettingsPanel(),
     );
+  }
+
+  // ============ 听书 ============
+  bool _ttsPlaying = false;
+  double _ttsRate = 1.0;
+  DateTime? _ttsStopAt; // 睡眠定时
+
+  Future<void> _showTtsSheet() async {
+    final available = await TtsService.instance.isAvailable();
+    if (!available) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('当前设备不支持 TTS 听书')));
+      }
+      return;
+    }
+    await showModalBottomSheet(
+      context: context,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (sheetCtx, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('在线听书', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton.filled(
+                      iconSize: 40,
+                      onPressed: () {
+                        if (_ttsPlaying) {
+                          TtsService.instance.pause();
+                          setSheet(() => _ttsPlaying = false);
+                        } else {
+                          // 从当前段落开始朗读
+                          final paras = _paragraphs;
+                          final start = SettingsService.instance.current.pageMode == 'scroll'
+                              ? _currentParagraphIndex()
+                              : 0;
+                          _speakFrom(paras, start);
+                          setSheet(() => _ttsPlaying = true);
+                        }
+                      },
+                      icon: Icon(_ttsPlaying ? Icons.pause : Icons.play_arrow),
+                    ),
+                    const SizedBox(width: 24),
+                    IconButton.filledTonal(
+                      iconSize: 32,
+                      onPressed: () {
+                        TtsService.instance.stop();
+                        setSheet(() => _ttsPlaying = false);
+                      },
+                      icon: const Icon(Icons.stop),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(children: [
+                  const Text('语速'),
+                  Expanded(child: Slider(
+                    value: _ttsRate, min: 0.5, max: 3.0, divisions: 10,
+                    label: '${_ttsRate.toStringAsFixed(1)}x',
+                    onChanged: (v) {
+                      TtsService.instance.rate = v;
+                      setSheet(() => _ttsRate = v);
+                    },
+                  )),
+                  Text('${_ttsRate.toStringAsFixed(1)}x'),
+                ]),
+                const SizedBox(height: 8),
+                // 睡眠定时
+                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                  const Text('睡眠定时', style: TextStyle(fontSize: 13)),
+                  ...[10, 30, 60].map((m) => ActionChip(
+                    label: Text('$m分钟'),
+                    onPressed: () {
+                      _ttsStopAt = DateTime.now().add(Duration(minutes: m));
+                      setSheet(() {});
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('将在 $m 分钟后停止朗读'), duration: const Duration(seconds: 1)));
+                    },
+                  )),
+                ]),
+                if (_ttsStopAt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text('定时停止：${_ttsStopAt!.hour}:${_ttsStopAt!.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _speakFrom(List<String> paras, int startIdx) async {
+    await TtsService.instance.setAwaitCompletion(true);
+    for (var i = startIdx; i < paras.length; i++) {
+      if (_ttsStopAt != null && DateTime.now().isAfter(_ttsStopAt!)) {
+        await TtsService.instance.stop();
+        break;
+      }
+      if (!_ttsPlaying) break;
+      await TtsService.instance.speak(paras[i]);
+    }
+    _ttsPlaying = false;
   }
 
   Widget _buildTocDrawer(Color textColor) {

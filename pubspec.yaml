@@ -1,7 +1,7 @@
 name: wenku8
 description: 轻小说文库 iPad 阅读器
 publish_to: 'none'
-version: 2.1.0+2
+version: 2.4.0+3
 
 environment:
   sdk: ^3.5.0
@@ -15,6 +15,7 @@ dependencies:
   cached_network_image: ^3.4.0
   file_picker: ^8.1.2
   archive: ^4.0.0
+  flutter_tts: ^4.0.2
 
 dev_dependencies:
   flutter_test:

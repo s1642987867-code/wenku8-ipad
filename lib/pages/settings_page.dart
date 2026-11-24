@@ -245,7 +245,7 @@ class _SettingsPageState extends State<SettingsPage> {
           const ListTile(
             leading: Icon(Icons.info),
             title: Text('轻小说文库 iPad'),
-            subtitle: Text('版本 2.3.0'),
+            subtitle: Text('版本 2.4.0'),
           ),
           const ListTile(
             leading: Icon(Icons.code),
