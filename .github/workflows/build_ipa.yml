@@ -28,17 +28,9 @@ jobs:
           node --version
           flutter --version
 
-      - name: Generate full catalog (4328 books from wenku8.net)
-        run: |
-          node tool/build_catalog.cjs
-
       - name: Verify assets
         run: |
-          echo "=== GBK map ==="
           ls -la assets/gbk_map.bin
-          echo "=== Catalog ==="
-          ls -la assets/catalog/catalog.json
-          echo "=== Catalog entry count ==="
           node -e "const c=require('./assets/catalog/catalog.json'); console.log('books:', c.length)"
 
       - name: Create iOS project files
@@ -52,21 +44,94 @@ jobs:
         run: |
           flutter build ios --release --no-codesign
 
-      - name: Package IPA
+      - name: Package unsigned IPA
         run: |
           BUILD_DIR="build/ios/iphoneos"
           APP=$(find "$BUILD_DIR" -name "Runner.app" -maxdepth 1 | head -1)
-          echo "Found app: $APP"
+          rm -rf Payload_unsigned && mkdir Payload_unsigned
+          cp -r "$APP" Payload_unsigned/
+          cd Payload_unsigned && zip -r -q ../wenku8-unsigned.ipa Payload && cd ..
+          ls -la wenku8-unsigned.ipa
 
-          rm -rf Payload
-          mkdir Payload
-          cp -r "$APP" Payload/
+      - name: Decode signing certificate
+        env:
+          P12_BASE64: ${{ secrets.P12_BASE64 }}
+          PROVISION_BASE64: ${{ secrets.PROVISION_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          mkdir -p certs
+          echo "$P12_BASE64" | base64 --decode > certs/cert.p12
+          echo "$PROVISION_BASE64" | base64 --decode > certs/embedded.mobileprovision
+          # verify
+          openssl pkcs12 -in certs/cert.p12 -passin "pass:$P12_PASSWORD" -nokeys -clcerts -legacy 2>/dev/null | grep "subject=" || \
+            openssl pkcs12 -in certs/cert.p12 -passin "pass:$P12_PASSWORD" -nokeys -clcerts | grep "subject="
 
-          zip -r -q wenku8.ipa Payload
-          ls -la wenku8.ipa
+      - name: Sign IPA (enterprise cert)
+        env:
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+        run: |
+          # Import cert to keychain
+          KEYCHAIN_PATH=build.keychain
+          KEYCHAIN_PASSWORD="action-temp-keychain-9182"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH || true
+          security default-keychain -s $KEYCHAIN_PATH || true
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -t 3600 -u $KEYCHAIN_PATH
+          security import certs/cert.p12 -k $KEYCHAIN_PATH -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Extract provisioning profile info
+          UUID=$(grep -aA1 "<key>UUID</key>" certs/embedded.mobileprovision | grep -o "[a-f0-9-]\{36\}")
+          APPID=$(grep -aA1 "<key>application-identifier</key>" certs/embedded.mobileprovision | tail -1 | grep -o "B8BGPMF2XK[^\"]*")
+          BUNDLE_ID="hk.com.hsbc.enterprise.wenku8.reader"
+          echo "Profile UUID: $UUID, entitlement appid: $APPID"
+          echo "Bundle will be: $BUNDLE_ID"
+
+          # Re-sign: copy app, update bundle id, embed profile, entitlements
+          rm -rf Payload && mkdir Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+
+          # Update bundle identifier to match provisioning profile prefix
+          PLIST="Payload/Runner.app/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$PLIST" || \
+            plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$PLIST"
+
+          # Embed provisioning profile
+          cp certs/embedded.mobileprovision Payload/Runner.app/embedded.mobileprovision
+
+          # Extract entitlements from profile
+          security cms -D -i certs/embedded.mobileprovision > profile.plist
+          /usr/libexec/PlistBuddy -x -c "Print :Entitlements" profile.plist > entitlements.plist
+
+          # Sign frameworks first, then the app
+          FRAMEWORKS="Payload/Runner.app/Frameworks"
+          if [ -d "$FRAMEWORKS" ]; then
+            for FW in "$FRAMEWORKS"/*.framework "$FRAMEWORKS"/*.dylib; do
+              [ -e "$FW" ] || continue
+              codesign -f -s "iPhone Distribution: HSBC Bank plc" --entitlements entitlements.plist "$FW" || \
+                codesign -f -s "iPhone Distribution: HSBC Bank plc" "$FW"
+            done
+          fi
+
+          codesign -f -s "iPhone Distribution: HSBC Bank plc" \
+            --entitlements entitlements.plist \
+            Payload/Runner.app
+
+          # Verify
+          codesign -vv Payload/Runner.app
+
+          # Zip signed IPA
+          zip -r -q wenku8-signed.ipa Payload
+          ls -la wenku8-signed.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wenku8-ipa
-          path: wenku8.ipa
+          name: wenku8-signed-ipa
+          path: wenku8-signed.ipa
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wenku8-unsigned-ipa
+          path: wenku8-unsigned.ipa
           retention-days: 30

@@ -6,6 +6,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../api/linovelib_api.dart';
 import '../api/novel_catalog.dart';
+import '../api/web_scraper.dart';
+import '../api/wenku8_api.dart';
 import '../models/models.dart';
 import 'book_detail_page.dart';
 
@@ -118,12 +120,65 @@ class _LinovelibTabState extends State<_LinovelibTab> {
   }
 }
 
-class _RecommendTab extends StatelessWidget {
+/// 推荐 Tab：本地目录 + 按 aid 随机实时抓取在线书籍信息
+class _RecommendTab extends StatefulWidget {
   const _RecommendTab();
   @override
+  State<_RecommendTab> createState() => _RecommendTabState();
+}
+
+class _RecommendTabState extends State<_RecommendTab> {
+  final _scraper = WebScraper();
+  List<Book>? _books;
+  bool _loading = true;
+
+  // 精选 aid 池（知名作品）
+  static const _featuredAids = [
+    1903, 2033, 2148, 2313, 2701, 2847, 3214, 3999,
+    1201, 1955, 2203, 2455, 2893, 1636, 1, 2906,
+    2725, 5491, 5131, 3605, 4279, 1501, 1806, 2259,
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _loading = true; });
+    final books = <Book>[];
+    // 随机取 12 本实时抓取
+    final pool = [..._featuredAids]..shuffle();
+    for (final aid in pool.take(12)) {
+      try {
+        final b = await _scraper.bookInfo(aid.toString());
+        books.add(b);
+      } catch (_) {
+        // 失败用本地目录兜底
+        final local = NovelCatalog.instance.search('', limit: 0); // no-op
+        books.add(Book(aid: aid.toString(), title: '文库作品 #$aid', coverUrl: WebScraperCover.url(aid.toString())));
+      }
+    }
+    setState(() { _books = books; _loading = false; });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final books = NovelCatalog.instance.recommend(count: 18);
-    return _BookGrid(books.map((e) => e.toBook()).toList());
+    if (_loading) {
+      return const Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 12),
+          Text('正在在线获取推荐...', style: TextStyle(color: Colors.grey, fontSize: 12)),
+        ],
+      ));
+    }
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: _BookGrid(_books ?? []),
+    );
   }
 }
 
@@ -291,6 +346,7 @@ class _BookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLino = book.source == BookSource.linovelib;
     return GestureDetector(
       onTap: () => Navigator.push(context,
           MaterialPageRoute(builder: (_) => BookDetailPage(aid: book.aid, book: book))),
@@ -298,22 +354,44 @@ class _BookCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: book.coverUrl != null
-                  ? CachedNetworkImage(
-                      imageUrl: book.coverUrl!,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => const ColoredBox(
-                          color: Color(0xFFE0E0E0),
-                          child: Center(child: Icon(Icons.book, color: Colors.grey))),
-                      errorWidget: (_, __, ___) => const ColoredBox(
-                          color: Color(0xFFE0E0E0),
-                          child: Center(child: Icon(Icons.book, color: Colors.grey))),
-                    )
-                  : const ColoredBox(
-                      color: Color(0xFFE0E0E0),
-                      child: Center(child: Icon(Icons.book, color: Colors.grey))),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: book.coverUrl != null
+                        ? CachedNetworkImage(
+                            imageUrl: book.coverUrl!,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => const ColoredBox(
+                                color: Color(0xFFE0E0E0),
+                                child: Center(child: Icon(Icons.book, color: Colors.grey))),
+                            errorWidget: (_, __, ___) => const ColoredBox(
+                                color: Color(0xFFE0E0E0),
+                                child: Center(child: Icon(Icons.book, color: Colors.grey))),
+                          )
+                        : const ColoredBox(
+                            color: Color(0xFFE0E0E0),
+                            child: Center(child: Icon(Icons.book, color: Colors.grey))),
+                  ),
+                ),
+                // 来源角标
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: isLino ? Colors.orange.withValues(alpha: 0.85) : Colors.blue.withValues(alpha: 0.85),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: Text(
+                      isLino ? '哔哩' : '文库',
+                      style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 4),

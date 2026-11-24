@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../api/linovelib_api.dart';
 import '../api/novel_catalog.dart';
+import '../api/web_scraper.dart';
 import '../models/models.dart';
 import 'book_detail_page.dart';
 
@@ -56,7 +57,21 @@ class _SearchPageState extends State<SearchPage> {
         setState(() { _results = []; _searching = false; _onlineError = '哔哩轻小说连接失败：$e\n可切换到轻小说文库本地目录搜索。'; });
       }
     } else {
-      final books = NovelCatalog.instance.search(kw.trim(), limit: 100).map((e) => e.toBook()).toList();
+      final kwTrim = kw.trim();
+      // wenku8：纯数字 = 书号直达（实时爬取书页）
+      final aid = int.tryParse(kwTrim);
+      if (aid != null && aid > 0 && aid < 10000) {
+        try {
+          setState(() { _searching = true; });
+          final scraper = WebScraper();
+          final book = await scraper.bookInfo(kwTrim);
+          setState(() { _results = [book]; _searching = false; });
+          return;
+        } catch (e) {
+          // 书号爬取失败，回退本地搜索
+        }
+      }
+      final books = NovelCatalog.instance.search(kwTrim, limit: 100).map((e) => e.toBook()).toList();
       setState(() { _results = books; _searching = false; });
     }
   }
@@ -68,7 +83,7 @@ class _SearchPageState extends State<SearchPage> {
         title: TextField(
           controller: _controller,
           decoration: InputDecoration(
-            hintText: _online ? '哔哩书号直达 / 热门榜筛选...' : '搜索书名或作者（本地目录）...',
+            hintText: _online ? '哔哩书号直达 / 热门榜筛选...' : '书名/作者搜索 · 或书号直达...',
             border: InputBorder.none,
             suffixIcon: _controller.text.isNotEmpty
                 ? IconButton(icon: const Icon(Icons.clear), onPressed: () { _controller.clear(); setState(() { _results = []; _searched = false; }); })
@@ -106,7 +121,7 @@ class _SearchPageState extends State<SearchPage> {
             child: !_searched
                 : Center(
                     child: Text(
-                      _online ? '哔哩轻小说 (linovelib.com)\n输入书号(NID)直达 · 或关键词筛选热门榜' : '输入关键词搜索\n本地目录共 ${NovelCatalog.instance.count} 本书籍',
+                      _online ? '哔哩轻小说 (linovelib.com)\n输入书号(NID)直达 · 或关键词筛选热门榜' : '轻小说文库\n书名/作者搜索 · 输入书号(1-4402)直达在线书页',
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.grey),
                     ),
