@@ -3,6 +3,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
@@ -139,10 +140,9 @@ class BackupService {
 
   Future<String> exportToFile() async {
     final data = jsonEncode(_collect());
-    final archive = Archive();
-    final dataBytes = utf8.encode(data);
-    archive.addFile(ArchiveFile('backup.json', dataBytes.length, DateTime.now())
-      ..content = dataBytes);
+    final dataBytes = Uint8List.fromList(utf8.encode(data));
+    final archive = Archive()
+      ..add(ArchiveFile('backup.json', dataBytes.length, dataBytes, DateTime.now().millisecondsSinceEpoch ~/ 1000));
     final bytes = ZipEncoder().encode(archive)!;
     final path = await FilePicker.platform.saveFile(
       fileName: 'wenku8_backup_${DateTime.now().millisecondsSinceEpoch}.zip',
