@@ -1,42 +1,74 @@
-name: Build Unsigned IPA
+name: Build iPad IPA
 
-# 触发：手动触发，或 push 到 main 时自动构建
 on:
-  workflow_dispatch:
   push:
     branches: [main]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: '3.24.5'
+  PUB_HOSTED_URL: 'https://pub.flutter-io.cn'
+  FLUTTER_STORAGE_BASE_URL: 'https://storage.flutter-io.cn'
 
 jobs:
   build:
-    # macOS 云构建机（公开仓库免费；macos-14 已弃用）
     runs-on: macos-15
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 安装 Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/setup-node@v4
         with:
-          channel: stable
-          flutter-version: 3.24.5
-          cache: true
+          node-version: '20'
 
-      - name: 安装依赖
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Show tool versions
+        run: |
+          node --version
+          flutter --version
+
+      - name: Generate full catalog (4328 books from wenku8.net)
+        run: |
+          node tool/build_catalog.cjs
+
+      - name: Verify assets
+        run: |
+          echo "=== GBK map ==="
+          ls -la assets/gbk_map.bin
+          echo "=== Catalog ==="
+          ls -la assets/catalog/catalog.json
+          echo "=== Catalog entry count ==="
+          node -e "const c=require('./assets/catalog/catalog.json'); console.log('books:', c.length)"
+
+      - name: Create iOS project files
+        run: |
+          flutter create --platforms=ios --org com.wenku8 --project-name wenku8 .
+
+      - name: Pub get
         run: flutter pub get
 
-      - name: 构建 iOS（未签名）
-        run: flutter build ios --release --no-codesign
-
-      - name: 组装未签名 ipa
+      - name: Build iOS (unsigned, no codesign)
         run: |
-          mkdir -p build/ios/ipa/Payload
-          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/Runner.app
-          cd build/ios/ipa
-          zip -qry 轻小说文库.ipa Payload
+          flutter build ios --release --no-codesign
 
-      - name: 上传构建产物
-        uses: actions/upload-artifact@v4
+      - name: Package IPA
+        run: |
+          BUILD_DIR="build/ios/iphoneos"
+          APP=$(find "$BUILD_DIR" -name "Runner.app" -maxdepth 1 | head -1)
+          echo "Found app: $APP"
+
+          rm -rf Payload
+          mkdir Payload
+          cp -r "$APP" Payload/
+
+          zip -r -q wenku8.ipa Payload
+          ls -la wenku8.ipa
+
+      - uses: actions/upload-artifact@v4
         with:
           name: wenku8-ipa
-          path: build/ios/ipa/轻小说文库.ipa
+          path: wenku8.ipa
           retention-days: 30

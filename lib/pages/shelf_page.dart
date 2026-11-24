@@ -1,0 +1,167 @@
+/// 书架页：网格/列表切换，阅读进度显示
+library;
+
+import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+
+import '../models/models.dart';
+import '../services/services.dart';
+import 'book_detail_page.dart';
+
+class ShelfPage extends StatefulWidget {
+  const ShelfPage({super.key});
+  @override
+  State<ShelfPage> createState() => _ShelfPageState();
+}
+
+class _ShelfPageState extends State<ShelfPage> {
+  bool _gridView = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('书架'),
+        actions: [
+          IconButton(
+            icon: Icon(_gridView ? Icons.view_list : Icons.grid_view),
+            onPressed: () => setState(() => _gridView = !_gridView),
+          ),
+        ],
+      ),
+      body: StreamBuilder<List<ShelfEntry>>(
+        stream: ShelfService.instance.entries,
+        builder: (ctx, snap) {
+          final entries = snap.data ?? ShelfService.instance.list;
+          if (entries.isEmpty) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.bookmarks_outlined, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('书架空空如也', style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  SizedBox(height: 8),
+                  Text('去发现页添加书籍吧', style: TextStyle(color: Colors.grey)),
+                ],
+              ),
+            );
+          }
+          if (_gridView) {
+            return GridView.builder(
+              padding: const EdgeInsets.all(12),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 140,
+                childAspectRatio: 0.65,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: entries.length,
+              itemBuilder: (ctx, i) => _ShelfGridCard(entries[i]),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: entries.length,
+            itemBuilder: (ctx, i) => _ShelfListTile(entries[i]),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ShelfGridCard extends StatelessWidget {
+  final ShelfEntry entry;
+  const _ShelfGridCard(this.entry);
+
+  @override
+  Widget build(BuildContext context) {
+    final book = entry.book;
+    return GestureDetector(
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => BookDetailPage(aid: book.aid, book: book))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: CachedNetworkImage(
+                    imageUrl: book.coverUrl ?? '',
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    placeholder: (_, __) => const ColoredBox(
+                        color: Color(0xFFE0E0E0),
+                        child: Center(child: Icon(Icons.book, color: Colors.grey))),
+                    errorWidget: (_, __, ___) => const ColoredBox(
+                        color: Color(0xFFE0E0E0),
+                        child: Center(child: Icon(Icons.book, color: Colors.grey))),
+                  ),
+                ),
+                if (entry.lastChapterTitle != null)
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(6)),
+                      ),
+                      child: Text(
+                        entry.lastChapterTitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(book.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShelfListTile extends StatelessWidget {
+  final ShelfEntry entry;
+  const _ShelfListTile(this.entry);
+
+  @override
+  Widget build(BuildContext context) {
+    final book = entry.book;
+    return ListTile(
+      leading: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: CachedNetworkImage(
+          imageUrl: book.coverUrl ?? '',
+          width: 50,
+          height: 70,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => const SizedBox(width: 50, height: 70, child: ColoredBox(color: Color(0xFFE0E0E0))),
+          errorWidget: (_, __, ___) => const SizedBox(width: 50, height: 70, child: ColoredBox(color: Color(0xFFE0E0E0))),
+        ),
+      ),
+      title: Text(book.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Text(
+        entry.lastChapterTitle != null
+            ? '读到: ${entry.lastChapterTitle}'
+            : '未开始阅读',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 12),
+      ),
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => BookDetailPage(aid: book.aid, book: book))),
+    );
+  }
+}

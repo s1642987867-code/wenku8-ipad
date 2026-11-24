@@ -1,57 +1,50 @@
-# 轻小说文库 · iPad 阅读器
+# 轻小说文库 iPad 阅读器
 
-基于 [wenku8reader](https://github.com/15dd/wenku8reader)、[light-novel-library_Wenku8_Android](https://github.com/MewX/light-novel-library_Wenku8_Android)、[Wenku8_Flutter](https://github.com/P5UEDGK/Wenku8_Flutter) 的设计思路，数据全部来自**轻小说文库**网站及 light-novel-library 的 API 实现。
+Flutter iPad 阅读器，对标 P5UEDGK/Wenku8_Flutter 界面和功能风格。
 
 ## 功能
 
-- **书籍发现**：关键字搜索、分类浏览
-- **书架管理**：收藏、阅读进度、最近阅读
-- **本地书库**：章节离线缓存，可完全离线阅读
-- **离线阅读**：阅读器自动优先读缓存
-- **在线听书**：系统 TTS 朗读正文（在线/离线均可）
-- **阅读器四种模式**：滚动 / 横排翻页 / 竖排翻页 / 大屏对页（iPad 横屏双页）
+### 在线阅读
+- 网页爬虫：书页 → 目录 → 正文（匿名无需登录）
+- 全本 TXT 下载：`dl.wenku8.com/down.php`
+- 章节正文：`div#content` 栈法提取，GBK 解码
 
-## 设计语言
+### 发现/搜索
+- 本地目录快照（4328 本，CI 时从 sitemap 批量抓取）
+- 推荐 / 排行 / 分类三个 Tab
+- 书名/作者搜索
 
-- 奶白玻璃材质（Flutter `BackdropFilter` + 奶白半透明层）
-- 档案式排版（衬线标题、编号、分割线、档案卡片）
-- 立体书架（多层渐变阴影书板 + 倾斜投影书脊）
+### 书架
+- 网格/列表切换
+- 阅读进度记录
+- 最近阅读排序
 
-## 运行（iPad）
+### 阅读器
+- 纵向滚动 + 左右滑动翻章
+- 字号/行距/背景色/夜间模式
+- 章节目录侧边栏
+- 阅读进度自动保存
+
+### 登录
+- wenku8.net 登录 UI（当前站点登录已失效，保留供恢复后使用）
+
+## 数据源
+
+| 功能 | 状态 | 说明 |
+|---|---|---|
+| 书页 `/book/{aid}.htm` | ✅ | 匿名可用，GBK 编码 |
+| 目录 `/novel/{n}/{aid}/index.htm` | ✅ | `.vcss` 卷 + `.ccss` 章 |
+| 正文 `/novel/{n}/{aid}/{cid}.htm` | ✅ | `div#content` |
+| TXT下载 `dl.wenku8.com` | ✅ | 全本 TXT |
+| 封面图 `img.wenku8.com` | ✅ | |
+| 排行/搜索/分类 | ❌ | 需登录，站点已失效 |
+| 本地目录快照 | ✅ | 4328 本 |
+
+## 构建
 
 ```bash
 flutter pub get
-flutter run -d <ipad-id>     # 或 flutter build ios --release
+flutter build ios --release --no-codesign
 ```
 
-## 打包 .ipa（未签名，供企业签/侧载工具重签）
-
-在 macOS 上（项目根目录）：
-
-```bash
-bash build_ipa.sh
-```
-
-产出 `build/ios/ipa/轻小说文库.ipa` —— **未签名包**，内含裸 `Payload/Runner.app`，无 embedded.mobileprovision，专为外部签名方案准备：
-
-- **企业签服务**：直接上传此 ipa，由服务方用企业证书重签后分发
-- **TrollStore**：免签直接安装
-- **自签工具**（爱思助手 / Sideloadly / AltStore）：导入此 ipa 重签后安装
-
-注：iOS 构建（ARM64 编译）必须在 macOS + Xcode 环境完成；本脚本只产出未签名包，不涉及任何 Apple 证书。
-
-## 结构
-
-```
-lib/
-  api/        wenku8 接口（GBK 编码、认证、搜索、详情、目录、正文）
-  models/     Book / Chapter / Bookmark
-  services/   bookshelf, local library(离线缓存), tts, settings
-  pages/      discover / shelf / library / reader / player
-  widgets/    glass(奶白玻璃), archive(档案排版), bookshelf(立体书架)
-```
-
-## 账号
-
-在应用内「我的 → 文库账号」输入 wenku8 用户名/密码；不登录时搜索与正文浏览也可用（站点允许的范围）。
-
+GitHub Actions CI 在 `macos-15` 上构建 unsigned IPA。

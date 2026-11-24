@@ -1,10 +1,11 @@
-name: wenku8_ipad
-description: 轻小说文库 iPad 阅读器 — 发现/书架/本地书库/离线阅读/在线听书
-publish_to: "none"
-version: 1.0.0+1
+name: wenku8
+description: 轻小说文库 iPad 阅读器
+publish_to: 'none'
+version: 2.0.0+1
 
 environment:
-  sdk: ">=3.5.0 <4.0.0"
+  sdk: ^3.5.0
+  flutter: '>=3.24.0'
 
 dependencies:
   flutter:
@@ -12,24 +13,19 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.3.0
   path_provider: ^2.1.0
-  flutter_tts: ^4.0.0
   file_picker: ^8.0.0
   archive: ^3.6.0
   xml: ^6.5.0
+  flutter_tts: ^4.2.0
+  cached_network_image: ^3.4.0
+  flutter_inappwebview: ^6.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^4.0.0
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/data/novel_catalog.json
-  fonts:
-    - family: Songti
-      fonts:
-        - asset: assets/fonts/NotoSerifSC-Regular.otf
-    - family: Kaiti
-      fonts:
-        - asset: assets/fonts/NotoSerifSC-Regular.otf
+    - assets/catalog/

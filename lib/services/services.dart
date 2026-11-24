@@ -1,293 +1,192 @@
-/// 服务层：书架、本地书库、设置、TTS。
+/// 服务层：书架管理、阅读进度、书签、设置持久化
 library;
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async';
 
-import 'package:flutter_tts/flutter_tts.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../api/wenku8_api.dart';
-import '../api/web_scraper.dart';
 import '../models/models.dart';
 
-/// 书架管理（收藏 + 进度），持久化到 SharedPreferences。
-class BookshelfService {
-  static const _key = 'bookshelf_v1';
+/// 书架服务
+class ShelfService {
+  static final ShelfService instance = ShelfService._();
+  ShelfService._();
+
   final List<ShelfEntry> _entries = [];
-  final _ctrl = StreamController<List<ShelfEntry>>.broadcast();
-  Stream<List<ShelfEntry>> get stream => _ctrl.stream;
-  List<ShelfEntry> get entries => List.unmodifiable(_entries);
+  final _controller = StreamController<List<ShelfEntry>>.broadcast();
+  Stream<List<ShelfEntry>> get entries => _controller.stream;
+
+  List<ShelfEntry> get list => List.unmodifiable(_entries);
 
   Future<void> load() async {
-    final sp = await SharedPreferences.getInstance();
-    final raw = sp.getString(_key);
-    if (raw != null) {
-      final list = jsonDecode(raw) as List;
-      _entries
-        ..clear()
-        ..addAll(list
-            .map((e) => ShelfEntry.fromJson(e as Map<String, dynamic>)));
-      _ctrl.add(_entries);
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('shelf_entries');
+    if (json != null) {
+      final List<dynamic> raw = jsonDecode(json);
+      _entries.clear();
+      _entries.addAll(raw.map((e) => ShelfEntry.fromJson(e as Map<String, dynamic>)));
     }
+    _controller.add(List.of(_entries));
   }
 
   Future<void> _save() async {
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString(_key, jsonEncode(_entries.map((e) => e.toJson()).toList()));
-    _ctrl.add(_entries);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('shelf_entries', jsonEncode(_entries.map((e) => e.toJson()).toList()));
   }
 
-  bool has(String aid) => _entries.any((e) => e.book.aid == aid);
-
-  ShelfEntry? get(String aid) {
-    for (final e in _entries) {
-      if (e.book.aid == aid) return e;
-    }
-    return null;
-  }
-
-  Future<void> addOrUpdate(Book book,
-      {String? lastCid,
-      String? lastChapterTitle,
-      int? lastChapterIdx,
-      int? lastPosition}) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final idx = _entries.indexWhere((e) => e.book.aid == book.aid);
-    if (idx >= 0) {
-      final e = _entries[idx];
-      // m6 修复：同一章重复打开时不重复写盘
-      if (e.lastCid == lastCid &&
-          e.lastChapterTitle == lastChapterTitle &&
-          (lastPosition == null || e.lastPosition == lastPosition)) {
-        return;
-      }
-      _entries[idx] = e.copyWith(
-        lastCid: lastCid,
-        lastChapterTitle: lastChapterTitle,
-        lastChapterIdx: lastChapterIdx,
-        lastPosition: lastPosition,
-        lastReadAt: now,
-      );
-    } else {
-      _entries.insert(
-          0,
-          ShelfEntry(
-            book: book,
-            lastCid: lastCid,
-            lastChapterTitle: lastChapterTitle,
-            lastChapterIdx: lastChapterIdx,
-            lastPosition: lastPosition ?? 0,
-            lastReadAt: now,
-          ));
-    }
+  Future<void> add(Book book) async {
+    if (_entries.any((e) => e.book.aid == book.aid)) return;
+    _entries.insert(0, ShelfEntry(book: book, lastReadAt: DateTime.now().millisecondsSinceEpoch));
+    _controller.add(List.of(_entries));
     await _save();
   }
 
   Future<void> remove(String aid) async {
     _entries.removeWhere((e) => e.book.aid == aid);
+    _controller.add(List.of(_entries));
     await _save();
   }
-}
 
-/// 本地书库：下载整本书章节到磁盘、统计、删除。
-class LocalLibraryService {
-  final Wenku8Api api;
-  final ContentCache cache;
-  final _progress = StreamController<DownloadProgress>.broadcast();
-  Stream<DownloadProgress> get progress => _progress.stream;
+  bool contains(String aid) => _entries.any((e) => e.book.aid == aid);
 
-  LocalLibraryService(this.api, this.cache);
-
-  Future<Directory> get root async =>
-      cache.root;
-
-  Future<void> downloadBook(Book book, List<Volume> volumes,
-      {void Function(DownloadProgress)? onProgress, WebScraper? scraper}) async {
-    final totalChapters = volumes.fold<int>(0, (s, v) => s + v.chapters.length);
-    // C1 修复：w 前缀网页章节走爬虫双源（否则 TXT chapterContent 永远查不到）
-    final scraperForBook = scraper ??
-        (volumes.any((v) => v.chapters.any((c) => c.cid.startsWith('w')))
-            ? WebScraper()
-            : null);
-    var done = 0;
-    for (final vol in volumes) {
-      for (final ch in vol.chapters) {
-        if (await cache.exists(ch.aid, ch.cid)) {
-          done++;
-        } else {
-          try {
-            final String text;
-            if (scraperForBook != null && ch.cid.startsWith('w')) {
-              text = await scraperForBook.chapter(ch.aid, ch.cid);
-            } else {
-              text = await api.chapterContent(ch.aid, ch.cid);
-            }
-            await cache.put(ch.aid, ch.cid, text);
-            done++;
-          } catch (_) {
-            // 单章失败不中断整本下载
-          }
-        }
-        final p = DownloadProgress(
-          aid: book.aid,
-          total: totalChapters,
-          done: done,
-          chapterTitle: ch.title,
-        );
-        _progress.add(p);
-        onProgress?.call(p);
-      }
-    }
+  Future<void> updateProgress(String aid, String cid, String chapterTitle, int chapterIdx, int position) async {
+    final idx = _entries.indexWhere((e) => e.book.aid == aid);
+    if (idx < 0) return;
+    _entries[idx] = _entries[idx].copyWith(
+      lastCid: cid,
+      lastChapterTitle: chapterTitle,
+      lastChapterIdx: chapterIdx,
+      lastPosition: position,
+      lastReadAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    _controller.add(List.of(_entries));
+    await _save();
   }
 
-  Future<bool> isBookDownloaded(List<Volume> volumes) async {
-    var all = true;
-    for (final v in volumes) {
-      for (final c in v.chapters) {
-        if (!await cache.exists(c.aid, c.cid)) {
-          all = false;
-          break;
-        }
-      }
-      if (!all) break;
-    }
-    return all;
+  ShelfEntry? get(String aid) {
+    final idx = _entries.indexWhere((e) => e.book.aid == aid);
+    return idx >= 0 ? _entries[idx] : null;
   }
-
-  Future<int> sizeBytes() => cache.totalSize();
-
-  Future<void> removeBook(String aid) => cache.removeBook(aid);
 }
 
-class DownloadProgress {
-  final String aid;
-  final int total;
-  final int done;
-  final String chapterTitle;
-  DownloadProgress({
-    required this.aid,
-    required this.total,
-    required this.done,
-    required this.chapterTitle,
-  });
-  double get ratio => total == 0 ? 0 : done / total;
-}
+/// 书签服务
+class BookmarkService {
+  static final BookmarkService instance = BookmarkService._();
+  BookmarkService._();
 
-/// 阅读设置持久化。
-class SettingsService {
-  static const _key = 'reader_settings_v1';
-  ReaderSettings _settings = const ReaderSettings();
-  ReaderSettings get settings => _settings;
-  final _ctrl = StreamController<ReaderSettings>.broadcast();
-  Stream<ReaderSettings> get stream => _ctrl.stream;
+  final List<Bookmark> _bookmarks = [];
+  final _controller = StreamController<List<Bookmark>>.broadcast();
+  Stream<List<Bookmark>> get bookmarks => _controller.stream;
 
   Future<void> load() async {
-    final sp = await SharedPreferences.getInstance();
-    final raw = sp.getString(_key);
-    if (raw != null) {
-      _settings = ReaderSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-      _ctrl.add(_settings);
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('bookmarks');
+    if (json != null) {
+      final List<dynamic> raw = jsonDecode(json);
+      _bookmarks.clear();
+      _bookmarks.addAll(raw.map((e) => Bookmark.fromJson(e as Map<String, dynamic>)));
     }
+    _controller.add(List.of(_bookmarks));
+  }
+
+  List<Bookmark> forBook(String aid) =>
+      _bookmarks.where((b) => b.aid == aid).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+  Future<void> add(Bookmark b) async {
+    _bookmarks.add(b);
+    _controller.add(List.of(_bookmarks));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('bookmarks', jsonEncode(_bookmarks.map((e) => e.toJson()).toList()));
+  }
+
+  Future<void> remove(String id) async {
+    _bookmarks.removeWhere((b) => b.id == id);
+    _controller.add(List.of(_bookmarks));
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('bookmarks', jsonEncode(_bookmarks.map((e) => e.toJson()).toList()));
+  }
+}
+
+/// 阅读设置服务
+class SettingsService {
+  static final SettingsService instance = SettingsService._();
+  SettingsService._();
+
+  ReaderSettings _settings = const ReaderSettings();
+  final _controller = StreamController<ReaderSettings>.broadcast();
+  Stream<ReaderSettings> get settings => _controller.stream;
+  ReaderSettings get current => _settings;
+
+  Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('reader_settings');
+    if (json != null) {
+      _settings = ReaderSettings.fromJson(jsonDecode(json) as Map<String, dynamic>);
+    }
+    _controller.add(_settings);
   }
 
   Future<void> update(ReaderSettings s) async {
     _settings = s;
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString(_key, jsonEncode(s.toJson()));
-    _ctrl.add(s);
+    _controller.add(_settings);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('reader_settings', jsonEncode(s.toJson()));
   }
 }
 
-/// 在线听书（系统 TTS，经 flutter_tts）。iPad 使用 AVSpeechSynthesis。
-class TtsService {
-  final FlutterTts _tts = FlutterTts();
-  final _ctrl = StreamController<TtsState>.broadcast();
-  Stream<TtsState> get stateStream => _ctrl.stream;
-  TtsState _state = TtsState.idle;
-  TtsState get state => _state;
+/// 登录状态服务
+class AuthService {
+  static final AuthService instance = AuthService._();
+  AuthService._();
 
-  List<String> _paragraphs = [];
-  int _index = 0;
-  String? _chapterKey;
+  String? _username;
+  String? _password;
+  bool _loggedIn = false;
 
-  bool _inited = false;
+  String? get username => _username;
+  bool get isLoggedIn => _loggedIn;
 
-  Future<void> _init() async {
-    if (_inited) return;
-    await _tts.setLanguage('zh-CN');
-    await _tts.setSpeechRate(0.5);
-    await _tts.setVolume(1.0);
-    await _tts.setPitch(1.0);
-    await _tts.awaitSpeakCompletion(true);
-    _tts.setCompletionHandler(() {
-      _next();
-    });
-    _tts.setCancelHandler(() => _setState(TtsState.stopped));
-    _inited = true;
+  Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    _username = prefs.getString('login_username');
+    _password = prefs.getString('login_password');
+    _loggedIn = prefs.getBool('login_status') ?? false;
   }
 
-  void _setState(TtsState s) {
-    _state = s;
-    _ctrl.add(s);
+  Future<void> setLoggedIn(String username, String password) async {
+    _username = username;
+    _password = password;
+    _loggedIn = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('login_username', username);
+    await prefs.setString('login_password', password);
+    await prefs.setBool('login_status', true);
   }
 
-  Future<void> playChapter(String aid, String cid, String content) async {
-    await _init();
-    _chapterKey = '$aid-$cid';
-    _paragraphs = content
-        .split('\n')
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    _index = 0;
-    await _speakCurrent();
+  Future<void> logout() async {
+    _username = null;
+    _password = null;
+    _loggedIn = false;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('login_username');
+    await prefs.remove('login_password');
+    await prefs.setBool('login_status', false);
   }
-
-  Future<void> _speakCurrent() async {
-    if (_index >= _paragraphs.length) {
-      _setState(TtsState.finished);
-      return;
-    }
-    _setState(TtsState.playing);
-    try {
-      await _tts.speak(_paragraphs[_index]);
-    } catch (_) {
-      _setState(TtsState.finished);
-    }
-  }
-
-  Future<void> _next() async {
-    _index++;
-    await _speakCurrent();
-  }
-
-  Future<void> pause() async {
-    await _tts.pause();
-    _setState(TtsState.paused);
-  }
-
-  Future<void> resume() async {
-    // M7 修复：从当前段重新播报（原来 speak('') 不会续播）
-    if (_index < _paragraphs.length) {
-      await _speakCurrent();
-    } else {
-      _setState(TtsState.finished);
-    }
-  }
-
-  Future<void> stop() async {
-    await _tts.stop();
-    _setState(TtsState.stopped);
-  }
-
-  Future<void> setRate(double rate) => _tts.setSpeechRate(rate);
-  Future<void> setVolume(double v) => _tts.setVolume(v);
-  Future<void> setPitch(double p) => _tts.setPitch(p);
-
-  String? get currentChapterKey => _chapterKey;
-  int get paragraphIndex => _index;
 }
 
-enum TtsState { idle, playing, paused, stopped, finished }
+/// 本地导入服务（TXT/EPUB）
+class ImportService {
+  static final ImportService instance = ImportService._();
+  ImportService._();
+
+  Future<String?> importTxt(String path) async {
+    // 返回本地书 ID
+    final file = File(path);
+    if (!await file.exists()) return null;
+    final name = path.split(Platform.pathSeparator).last;
+    return 'local_txt_$name';
+  }
+}
