@@ -50,10 +50,7 @@ class TtsService {
     for (var i = 0; i < paragraphs.length; i++) {
       final p = paragraphs[i].trim();
       if (p.isEmpty) continue;
-      // setCompletionHandler 只有一个，同步等待即可
-      await _tts.setCompletionHandler(() {}); // no-op handler
       await _tts.speak(p);
-      // awaitSpeakCompletion(true) 使 speak() 阻塞至读完
       onSegment?.call(i);
     }
   }
