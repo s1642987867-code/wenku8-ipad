@@ -105,7 +105,7 @@ class LinovelibApi {
     return Book(
       aid: 'lino_$nid',
       title: title ?? 'linovelib #$nid',
-      author: author,
+      author: author ?? '',
       intro: _cleanIntro(intro),
       coverUrl: cover.startsWith('http') ? cover : '$base$cover',
       source: BookSource.linovelib,
