@@ -62,19 +62,25 @@ class _SettingsPageState extends State<SettingsPage> {
           const _SectionHeader('数据源'),
           const ListTile(
             leading: Icon(Icons.cloud_download),
-            title: Text('在线阅读（网页爬虫）'),
-            subtitle: Text('书页 → 目录 → 正文，无需登录'),
+            title: Text('轻小说文库 · 在线阅读'),
+            subtitle: Text('wenku8.net 网页爬虫，无需登录'),
             trailing: Icon(Icons.check_circle, color: Colors.green, size: 20),
           ),
           const ListTile(
             leading: Icon(Icons.download),
-            title: Text('全本 TXT 下载'),
+            title: Text('轻小说文库 · 全本 TXT'),
             subtitle: Text('dl.wenku8.com，无需登录'),
             trailing: Icon(Icons.check_circle, color: Colors.green, size: 20),
           ),
           const ListTile(
+            leading: Icon(Icons.public),
+            title: Text('哔哩轻小说 · 在线阅读'),
+            subtitle: Text('linovelib.com 排行/书页/正文，无需登录'),
+            trailing: Icon(Icons.check_circle, color: Colors.green, size: 20),
+          ),
+          const ListTile(
             leading: Icon(Icons.search),
-            title: Text('在线排行/搜索/分类'),
+            title: Text('轻小说文库 · 在线排行/搜索'),
             subtitle: Text('需登录，当前站点登录已失效'),
             trailing: Icon(Icons.cancel, color: Colors.red, size: 20),
           ),
@@ -90,12 +96,12 @@ class _SettingsPageState extends State<SettingsPage> {
           const ListTile(
             leading: Icon(Icons.info),
             title: Text('轻小说文库 iPad'),
-            subtitle: Text('版本 2.0.0'),
+            subtitle: Text('版本 2.1.0'),
           ),
           const ListTile(
             leading: Icon(Icons.code),
             title: Text('数据来源'),
-            subtitle: Text('wenku8.net / dl.wenku8.com / img.wenku8.com'),
+            subtitle: Text('wenku8.net / linovelib.com / dl.wenku8.com'),
           ),
           const ListTile(
             leading: Icon(Icons.warning),

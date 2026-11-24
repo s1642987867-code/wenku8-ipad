@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../api/linovelib_api.dart';
 import '../api/web_scraper.dart';
 import '../api/wenku8_api.dart';
 import '../models/models.dart';
@@ -23,6 +24,7 @@ class BookDetailPage extends StatefulWidget {
 class _BookDetailPageState extends State<BookDetailPage> {
   final _scraper = WebScraper();
   final _api = Wenku8Api();
+  final _lino = LinovelibApi();
   Book? _book;
   List<Volume>? _volumes;
   bool _loading = true;
@@ -36,10 +38,23 @@ class _BookDetailPageState extends State<BookDetailPage> {
     _loadData();
   }
 
+  bool get _isLino => (_book ?? widget.book)?.source == BookSource.linovelib;
+
   Future<void> _loadData() async {
     setState(() { _loading = true; _error = null; });
     try {
-      // 优先用网页爬虫获取目录（更实时）
+      if (_isLino) {
+        // 哔哩轻小说源
+        final nid = widget.aid.startsWith('lino_') ? widget.aid.substring(5) : widget.aid;
+        final book = await _lino.bookInfo(nid);
+        final vols = await _lino.toc(nid);
+        _book = book;
+        _volumes = vols;
+        if (vols.isNotEmpty) _expanded.add(vols.first.vid);
+        setState(() { _loading = false; });
+        return;
+      }
+      // wenku8 源：优先网页爬虫获取目录（更实时）
       final (book, vols) = await _scraper.toc(widget.aid);
       _book = book;
       _volumes = vols;
@@ -47,6 +62,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
       if (vols.isNotEmpty) _expanded.add(vols.first.vid);
       setState(() { _loading = false; });
     } catch (e) {
+      if (_isLino) {
+        setState(() { _loading = false; _error = '$e'; });
+        return;
+      }
       // 回退到 TXT 全本下载
       try {
         final (book, vols) = await _api.bookDetail(widget.aid);

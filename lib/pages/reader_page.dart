@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../api/linovelib_api.dart';
 import '../api/web_scraper.dart';
 import '../api/wenku8_api.dart';
 import '../models/models.dart';
@@ -29,6 +30,7 @@ class ReaderPage extends StatefulWidget {
 class _ReaderPageState extends State<ReaderPage> {
   final _scraper = WebScraper();
   final _api = Wenku8Api();
+  final _lino = LinovelibApi();
   final _scaffoldKey = GlobalKey<ScaffoldState>();
   late int _chapterIdx;
   String? _content;
@@ -69,8 +71,11 @@ class _ReaderPageState extends State<ReaderPage> {
     try {
       final ch = _currentChapter;
       String content;
-      if (ch.cid.startsWith('w')) {
-        // 网页章节
+      if (widget.book.source == BookSource.linovelib) {
+        // 哔哩轻小说源
+        content = await _lino.chapter(widget.aid.substring(5), ch.cid);
+      } else if (ch.cid.startsWith('w')) {
+        // wenku8 网页章节
         content = await _scraper.chapter(widget.aid, ch.cid);
       } else {
         // TXT 全本章节

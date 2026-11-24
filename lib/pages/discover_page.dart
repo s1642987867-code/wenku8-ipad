@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../api/linovelib_api.dart';
 import '../api/novel_catalog.dart';
 import '../models/models.dart';
 import 'book_detail_page.dart';
@@ -18,21 +19,100 @@ class _DiscoverPageState extends State<DiscoverPage> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('发现'),
-          bottom: const TabBar(tabs: [
+          bottom: const TabBar(isScrollable: true, tabs: [
             Tab(text: '推荐'),
             Tab(text: '排行'),
             Tab(text: '分类'),
+            Tab(text: '哔哩·月榜'),
           ]),
         ),
         body: const TabBarView(children: [
           _RecommendTab(),
           _RankingTab(),
           _CategoryTab(),
+          _LinovelibTab(),
         ]),
+      ),
+    );
+  }
+}
+
+/// 哔哩轻小说排行榜 Tab（在线抓取 linovelib.com）
+class _LinovelibTab extends StatefulWidget {
+  const _LinovelibTab();
+  @override
+  State<_LinovelibTab> createState() => _LinovelibTabState();
+}
+
+class _LinovelibTabState extends State<_LinovelibTab> {
+  final _lino = LinovelibApi();
+  List<Book>? _books;
+  String? _error;
+  String _period = 'monthvisit';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { _books = null; _error = null; });
+    try {
+      final books = await _lino.ranking(period: _period);
+      setState(() { _books = books; });
+    } catch (e) {
+      setState(() { _error = '哔哩轻小说排行加载失败：\n$e'; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Row(
+            children: [
+              _chip('月榜', 'monthvisit'),
+              _chip('周榜', 'weekvisit'),
+              _chip('总榜', 'allvisit'),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _error != null
+              ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.orange))))
+              : _books == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        itemCount: _books!.length,
+                        itemBuilder: (ctx, i) => ListTile(
+                          leading: Text('${i + 1}', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: i < 3 ? Colors.orange : Colors.grey)),
+                          title: Text(_books![i].title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          onTap: () => Navigator.push(context,
+                              MaterialPageRoute(builder: (_) => BookDetailPage(aid: _books![i].aid, book: _books![i]))),
+                        ),
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _chip(String label, String period) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: ChoiceChip(
+        label: Text(label),
+        selected: _period == period,
+        onSelected: (_) { setState(() => _period = period); _load(); },
       ),
     );
   }

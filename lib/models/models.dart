@@ -1,6 +1,9 @@
 /// 数据模型层
 library;
 
+/// 数据源类型
+enum BookSource { wenku8, linovelib }
+
 /// 书籍
 class Book {
   final String aid;
@@ -12,6 +15,7 @@ class Book {
   final int? wordCount;
   final String? lastUpdate;
   final String? category;
+  final BookSource source;
 
   const Book({
     required this.aid,
@@ -23,6 +27,7 @@ class Book {
     this.wordCount,
     this.lastUpdate,
     this.category,
+    this.source = BookSource.wenku8,
   });
 
   Book copyWith({
@@ -34,6 +39,7 @@ class Book {
     int? wordCount,
     String? lastUpdate,
     String? category,
+    BookSource? source,
   }) =>
       Book(
         aid: aid,
@@ -45,6 +51,7 @@ class Book {
         wordCount: wordCount ?? this.wordCount,
         lastUpdate: lastUpdate ?? this.lastUpdate,
         category: category ?? this.category,
+        source: source ?? this.source,
       );
 
   Map<String, dynamic> toJson() => {
@@ -57,6 +64,7 @@ class Book {
         'wordCount': wordCount,
         'lastUpdate': lastUpdate,
         'category': category,
+        'source': source == BookSource.linovelib ? 'linovelib' : 'wenku8',
       };
 
   factory Book.fromJson(Map<String, dynamic> j) => Book(
@@ -69,6 +77,7 @@ class Book {
         wordCount: (j['wordCount'] as num?)?.toInt(),
         lastUpdate: j['lastUpdate']?.toString(),
         category: j['category']?.toString(),
+        source: j['source']?.toString() == 'linovelib' ? BookSource.linovelib : BookSource.wenku8,
       );
 }
 

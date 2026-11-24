@@ -9,6 +9,12 @@ Flutter iPad 阅读器，对标 P5UEDGK/Wenku8_Flutter 界面和功能风格。
 - 全本 TXT 下载：`dl.wenku8.com/down.php`
 - 章节正文：`div#content` 栈法提取，GBK 解码
 
+### 哔哩轻小说（第二数据源 linovelib.com）
+- 月榜/周榜/总榜在线排行（发现页第四个 Tab）
+- 在线搜索（搜索页可切换数据源）
+- 书页/目录/正文在线阅读（自动聚合分页章节，UTF-8 编码）
+- 全部匿名无需登录
+
 ### 发现/搜索
 - 本地目录快照（4328 本，CI 时从 sitemap 批量抓取）
 - 推荐 / 排行 / 分类三个 Tab
@@ -39,6 +45,9 @@ Flutter iPad 阅读器，对标 P5UEDGK/Wenku8_Flutter 界面和功能风格。
 | 封面图 `img.wenku8.com` | ✅ | |
 | 排行/搜索/分类 | ❌ | 需登录，站点已失效 |
 | 本地目录快照 | ✅ | 4328 本 |
+| 哔哩排行 `/top/*.html` | ✅ | linovelib.com，匿名 UTF-8 |
+| 哔哩书页/目录/正文 | ✅ | 匿名 UTF-8，分页自动聚合 |
+| 哔哩搜索 `/s/{kw}.html` | ⚠️ | 部分网络受限，失败回退本地目录 |
 
 ## 构建
 
