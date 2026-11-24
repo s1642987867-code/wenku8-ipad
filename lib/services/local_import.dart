@@ -214,7 +214,7 @@ class LocalLibraryService {
       if (currentCh == null) return;
       final content = lines.sublist(chStart, endLine).join('\n').trim();
       if (content.isNotEmpty) {
-        currentVol.chapters.add(Chapter(cid: currentCh!.cid, title: currentCh!.title, localContent: content));
+        currentVol.chapters.add(Chapter(aid: '', cid: currentCh!.cid, title: currentCh!.title, localContent: content));
       }
     }
 
