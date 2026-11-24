@@ -119,7 +119,7 @@ class _SearchPageState extends State<SearchPage> {
           ),
           Expanded(
             child: !_searched
-                : Center(
+                ? Center(
                     child: Text(
                       _online ? '哔哩轻小说 (linovelib.com)\n输入书号(NID)直达 · 或关键词筛选热门榜' : '轻小说文库\n书名/作者搜索 · 输入书号(1-4402)直达在线书页',
                       textAlign: TextAlign.center,
