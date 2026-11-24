@@ -9,6 +9,7 @@ import '../api/web_scraper.dart';
 import '../api/wenku8_api.dart';
 import '../models/models.dart';
 import '../services/services.dart';
+import 'browse_page.dart';
 import 'reader_page.dart';
 
 class BookDetailPage extends StatefulWidget {
@@ -147,7 +148,38 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   children: [
                     Text(book.title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 4),
-                    Text(book.author, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                    // 作者可点击 → 同作者书单
+                    GestureDetector(
+                      onTap: () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => BrowsePage(mode: 'author', author: book.author),
+                      )),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(book.author, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                          if (book.author.isNotEmpty) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.chevron_right, size: 14, color: Colors.white54),
+                          ],
+                        ],
+                      ),
+                    ),
+                    // 标签可点击 → 同分类书单
+                    if (book.category != null && book.category!.isNotEmpty)
+                      GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(
+                          builder: (_) => BrowsePage(mode: 'tag', initialTag: book.category),
+                        )),
+                        child: Container(
+                          margin: const EdgeInsets.only(top: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(book.category!, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                        ),
+                      ),
                     if (book.status != null)
                       Text(book.status!, style: const TextStyle(color: Colors.white60, fontSize: 12)),
                   ],

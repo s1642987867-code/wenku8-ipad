@@ -9,3 +9,4 @@ export 'book_detail_page.dart';
 export 'reader_page.dart';
 export 'settings_page.dart';
 export 'login_page.dart';
+export 'browse_page.dart';

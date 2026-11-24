@@ -129,6 +129,18 @@ class NovelCatalog {
     return set.toList()..sort();
   }
 
+  /// 按作者查书单
+  List<CatalogEntry> byAuthor(String author, {int limit = 100}) {
+    if (author.isEmpty) return [];
+    return _entries.where((e) => e.author == author).take(limit).toList();
+  }
+
+  /// 按标签查书单
+  List<CatalogEntry> byTag(String tag, {int limit = 100}) {
+    if (tag.isEmpty) return [];
+    return _entries.where((e) => e.tag == tag).take(limit).toList();
+  }
+
   /// CJK 归一化（去空格/标点/转小写）
   String _normalize(String s) {
     return s
