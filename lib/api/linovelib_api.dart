@@ -227,7 +227,7 @@ class LinovelibApi {
     return paras.join('\n');
   }
 
-  String _cleanIntro(String? s) {
+  String? _cleanIntro(String? s) {
     if (s == null) return null;
     return s
         .replaceAll(RegExp(r'内容简介[：:]?'), '')
