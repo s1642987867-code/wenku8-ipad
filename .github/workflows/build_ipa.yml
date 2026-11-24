@@ -49,7 +49,7 @@ jobs:
           BUILD_DIR="build/ios/iphoneos"
           APP=$(find "$BUILD_DIR" -name "Runner.app" -maxdepth 1 | head -1)
           rm -rf Payload_unsigned && mkdir Payload_unsigned
-          cp -r "$APP" Payload_unsigned/
+          cp -r "$APP" Payload_unsigned/Payload
           cd Payload_unsigned && zip -r -q ../wenku8-unsigned.ipa Payload && cd ..
           ls -la wenku8-unsigned.ipa
 
