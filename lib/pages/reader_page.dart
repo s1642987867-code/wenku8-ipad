@@ -9,6 +9,7 @@ import '../api/linovelib_api.dart';
 import '../api/web_scraper.dart';
 import '../api/wenku8_api.dart';
 import '../models/models.dart';
+import '../services/cache_service.dart';
 import '../services/services.dart';
 
 class ReaderPage extends StatefulWidget {
@@ -95,12 +96,21 @@ class _ReaderPageState extends State<ReaderPage> {
       if (ch.localContent != null) {
         // 本地导入章节（TXT/EPUB）
         content = ch.localContent!;
-      } else if (widget.book.source == BookSource.linovelib) {
-        content = await _lino.chapter(widget.aid.substring(5), ch.cid);
-      } else if (ch.cid.startsWith('w')) {
-        content = await _scraper.chapter(widget.aid, ch.cid);
       } else {
-        content = await _api.chapterContent(widget.aid, ch.cid);
+        // 优先读缓存
+        final cached = await ChapterCacheService.instance.get(widget.aid, ch.cid);
+        if (cached != null) {
+          content = cached;
+        } else if (widget.book.source == BookSource.linovelib) {
+          content = await _lino.chapter(widget.aid.substring(5), ch.cid);
+          await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
+        } else if (ch.cid.startsWith('w')) {
+          content = await _scraper.chapter(widget.aid, ch.cid);
+          await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
+        } else {
+          content = await _api.chapterContent(widget.aid, ch.cid);
+          await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
+        }
       }
       _content = content;
       _loading = false;
@@ -111,8 +121,34 @@ class _ReaderPageState extends State<ReaderPage> {
       ShelfService.instance.updateProgress(
         widget.aid, ch.cid, ch.title, _chapterIdx, 0,
       );
+      // 记录阅读历史
+      HistoryService.instance.record(widget.aid, widget.book.title, ch.cid, ch.title);
     } catch (e) {
       setState(() { _loading = false; _error = '$e'; });
+    }
+  }
+
+  /// 整本缓存（后台下载全书章节）
+  Future<void> _cacheWholeBook() async {
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      Future<String> Function(String) fetch;
+      if (widget.book.source == BookSource.linovelib) {
+        fetch = (cid) => _lino.chapter(widget.aid.substring(5), cid);
+      } else {
+        fetch = (cid) => _scraper.chapter(widget.aid, cid);
+      }
+      final n = await ChapterCacheService.instance.cacheWholeBook(widget.aid, widget.volumes, fetch);
+      if (mounted) Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(content: Text('已缓存 $n 个章节')));
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      messenger.showSnackBar(SnackBar(content: Text('缓存失败: $e')));
     }
   }
 
@@ -341,6 +377,7 @@ class _ReaderPageState extends State<ReaderPage> {
           leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => Navigator.pop(context)),
           actions: [
             IconButton(icon: const Icon(Icons.search), onPressed: _showSearchSheet, tooltip: '章内查找'),
+            IconButton(icon: const Icon(Icons.download_outlined), onPressed: _cacheWholeBook, tooltip: '缓存全本'),
             IconButton(icon: const Icon(Icons.bookmark_add_outlined), onPressed: _addBookmark, tooltip: '添加书签'),
             IconButton(icon: const Icon(Icons.bookmarks_outlined), onPressed: _showBookmarks, tooltip: '书签列表'),
             IconButton(icon: const Icon(Icons.toc), onPressed: () => _scaffoldKey.currentState?.openEndDrawer()),

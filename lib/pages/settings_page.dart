@@ -2,8 +2,11 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../models/models.dart';
+import '../services/cache_service.dart';
+import '../services/local_import.dart';
 import '../services/services.dart';
 import 'login_page.dart';
 
@@ -91,12 +94,75 @@ class _SettingsPageState extends State<SettingsPage> {
             trailing: Icon(Icons.check_circle, color: Colors.green, size: 20),
           ),
           const Divider(),
+          // 数据与缓存
+          const _SectionHeader('数据与缓存'),
+          ListTile(
+            leading: const Icon(Icons.history),
+            title: const Text('阅读历史'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.cleaning_services),
+            title: const Text('章节缓存管理'),
+            onTap: () async {
+              final (count, bytes) = await ChapterCacheService.instance.stats();
+              if (!mounted) return;
+              final ok = await showDialog<bool>(context: context, builder: (_) => AlertDialog(
+                title: const Text('章节缓存'),
+                content: Text('已缓存 $count 个章节，占用 ${(bytes / 1024 / 1024).toStringAsFixed(1)} MB'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+                  TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('清空')),
+                ],
+              ));
+              if (ok == true) {
+                await ChapterCacheService.instance.clear();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('缓存已清空')));
+                }
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.backup),
+            title: const Text('导出备份'),
+            subtitle: const Text('书架/进度/书签/设置/历史 → ZIP'),
+            onTap: () async {
+              try {
+                final path = await BackupService.instance.exportToFile();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(path.isEmpty ? '已取消' : '已导出到 $path')));
+                }
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.restore),
+            title: const Text('导入备份'),
+            subtitle: const Text('从 ZIP 备份恢复'),
+            onTap: () async {
+              final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['zip']);
+              final path = result?.files.single.path;
+              if (path == null) return;
+              try {
+                final n = await BackupService.instance.importFromFile(path);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已恢复 $n 本书籍')));
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败: $e')));
+              }
+            },
+          ),
+          const Divider(),
           // 关于
           const _SectionHeader('关于'),
           const ListTile(
             leading: Icon(Icons.info),
             title: Text('轻小说文库 iPad'),
-            subtitle: Text('版本 2.1.0'),
+            subtitle: Text('版本 2.3.0'),
           ),
           const ListTile(
             leading: Icon(Icons.code),
@@ -110,6 +176,49 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 阅读历史页
+class HistoryPage extends StatelessWidget {
+  const HistoryPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = HistoryService.instance.list;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('阅读历史'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep),
+            tooltip: '清空历史',
+            onPressed: () async {
+              await HistoryService.instance.clear();
+              // 刷新页面
+              (context as Element).markNeedsBuild();
+            },
+          ),
+        ],
+      ),
+      body: items.isEmpty
+          ? const Center(child: Text('暂无阅读历史', style: TextStyle(color: Colors.grey)))
+          : ListView.builder(
+              itemCount: items.length,
+              itemBuilder: (ctx, i) {
+                final h = items[i];
+                final at = DateTime.fromMillisecondsSinceEpoch(h['at'] as int? ?? 0);
+                return ListTile(
+                  leading: const Icon(Icons.menu_book_outlined),
+                  title: Text(h['title']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(
+                    '${h['chapterTitle']?.toString() ?? ''} · ${at.month}/${at.day} ${at.hour}:${at.minute.toString().padLeft(2, '0')}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

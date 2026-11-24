@@ -94,6 +94,10 @@ class BookmarkService {
   List<Bookmark> forBook(String aid) =>
       _bookmarks.where((b) => b.aid == aid).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
+  /// 全部书签（按时间倒序）
+  List<Bookmark> get all =>
+      List.of(_bookmarks)..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
   Future<void> add(Bookmark b) async {
     _bookmarks.add(b);
     _controller.add(List.of(_bookmarks));
