@@ -253,6 +253,18 @@ class ReaderSettings {
   final String fontFamily;
   final bool justifyText;
   final double paragraphSpacing;
+  /// 翻页模式：scroll=上下滚动, horizontal=横排左右翻页, vertical=竖排右左翻页
+  final String pageMode;
+  /// 翻页动画：slide=平移, cover=覆盖, none=无, curl=纸页翻动(模拟)
+  final String pageAnim;
+  /// 横向页边距（逻辑像素）
+  final double marginH;
+  /// 纵向页边距
+  final double marginV;
+  /// 段落首行缩进字符数（0-4）
+  final int indent;
+  /// 显示进度百分比
+  final bool showProgress;
 
   const ReaderSettings({
     this.fontSize = 18.0,
@@ -262,6 +274,12 @@ class ReaderSettings {
     this.fontFamily = 'system',
     this.justifyText = true,
     this.paragraphSpacing = 8.0,
+    this.pageMode = 'scroll',
+    this.pageAnim = 'slide',
+    this.marginH = 24.0,
+    this.marginV = 24.0,
+    this.indent = 2,
+    this.showProgress = false,
   });
 
   ReaderSettings copyWith({
@@ -272,6 +290,12 @@ class ReaderSettings {
     String? fontFamily,
     bool? justifyText,
     double? paragraphSpacing,
+    String? pageMode,
+    String? pageAnim,
+    double? marginH,
+    double? marginV,
+    int? indent,
+    bool? showProgress,
   }) =>
       ReaderSettings(
         fontSize: fontSize ?? this.fontSize,
@@ -281,6 +305,12 @@ class ReaderSettings {
         fontFamily: fontFamily ?? this.fontFamily,
         justifyText: justifyText ?? this.justifyText,
         paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
+        pageMode: pageMode ?? this.pageMode,
+        pageAnim: pageAnim ?? this.pageAnim,
+        marginH: marginH ?? this.marginH,
+        marginV: marginV ?? this.marginV,
+        indent: indent ?? this.indent,
+        showProgress: showProgress ?? this.showProgress,
       );
 
   Map<String, dynamic> toJson() => {
@@ -291,6 +321,12 @@ class ReaderSettings {
         'fontFamily': fontFamily,
         'justifyText': justifyText,
         'paragraphSpacing': paragraphSpacing,
+        'pageMode': pageMode,
+        'pageAnim': pageAnim,
+        'marginH': marginH,
+        'marginV': marginV,
+        'indent': indent,
+        'showProgress': showProgress,
       };
 
   factory ReaderSettings.fromJson(Map<String, dynamic> j) => ReaderSettings(
@@ -301,6 +337,12 @@ class ReaderSettings {
         fontFamily: j['fontFamily']?.toString() ?? 'system',
         justifyText: j['justifyText'] as bool? ?? true,
         paragraphSpacing: (j['paragraphSpacing'] as num?)?.toDouble() ?? 8.0,
+        pageMode: j['pageMode']?.toString() ?? 'scroll',
+        pageAnim: j['pageAnim']?.toString() ?? 'slide',
+        marginH: (j['marginH'] as num?)?.toDouble() ?? 24.0,
+        marginV: (j['marginV'] as num?)?.toDouble() ?? 24.0,
+        indent: (j['indent'] as num?)?.toInt() ?? 2,
+        showProgress: j['showProgress'] as bool? ?? false,
       );
 }
 
