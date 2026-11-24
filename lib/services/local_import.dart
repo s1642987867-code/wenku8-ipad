@@ -3,6 +3,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
@@ -264,7 +265,7 @@ class LocalLibraryService {
     String opfPath = 'content.opf';
     for (final f in archive.files) {
       if (f.name == 'META-INF/container.xml' || f.name.endsWith('/container.xml')) {
-        final s = utf8.decode(f.content as List<int>, allowMalformed: true);
+        final s = utf8.decode(f.content as Uint8List, allowMalformed: true);
         final m = RegExp(r'full-path="([^"]+)"').firstMatch(s);
         if (m != null) opfPath = m.group(1)!;
         break;
@@ -275,7 +276,7 @@ class LocalLibraryService {
       if (f.name == opfPath || f.name.endsWith('/$opfPath')) { opfFile = f; break; }
     }
     if (opfFile == null) throw Exception('EPUB 解析失败');
-    final opf = utf8.decode(opfFile.content as List<int>, allowMalformed: true);
+    final opf = utf8.decode(opfFile.content as Uint8List, allowMalformed: true);
 
     // 元数据
     final titleM = RegExp(r'<dc:title[^>]*>([^<]+)</dc:title>').firstMatch(opf);
@@ -309,7 +310,7 @@ class LocalLibraryService {
         if (f.name == fullPath || f.name.endsWith('/$fullPath') || f.name == cleanHref) { htmlFile = f; break; }
       }
       if (htmlFile == null) continue;
-      final html = utf8.decode(htmlFile.content as List<int>, allowMalformed: true);
+      final html = utf8.decode(htmlFile.content as Uint8List, allowMalformed: true);
       if (html.trim().isEmpty) continue;
 
       final titleM = RegExp(r'<h[1-6][^>]*>([^<]+)</h[1-6]>').firstMatch(html);
@@ -336,7 +337,7 @@ class LocalLibraryService {
       if (ln.contains('cover') && (ln.endsWith('.jpg') || ln.endsWith('.png') || ln.endsWith('.jpeg'))) {
         final ext = ln.substring(ln.lastIndexOf('.'));
         final coverFile = File('${_workDir.path}/cover_${DateTime.now().millisecondsSinceEpoch}$ext');
-        await coverFile.writeAsBytes(f.content as List<int>);
+        await coverFile.writeAsBytes(f.content as Uint8List);
         coverPath = coverFile.path;
         break;
       }
@@ -373,7 +374,7 @@ class LocalLibraryService {
     for (final f in archive.files) {
       if (f.isFile && f.name.toLowerCase().endsWith('.txt')) {
         final tmp = File('${_workDir.path}/tmp_${DateTime.now().millisecondsSinceEpoch}_${f.name.split('/').last}');
-        await tmp.writeAsBytes(f.content as List<int>);
+        await tmp.writeAsBytes(f.content as Uint8List);
         try {
           results.add(await importTxt(tmp.path, fallbackName: f.name.split('/').last));
         } catch (_) {}

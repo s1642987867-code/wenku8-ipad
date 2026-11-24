@@ -159,7 +159,7 @@ class BackupService {
       if (x.name == 'backup.json') { f = x; break; }
     }
     if (f == null) throw Exception('备份文件无效');
-    final data = jsonDecode(utf8.decode(f.content as List<int>)) as Map<String, dynamic>;
+    final data = jsonDecode(utf8.decode(f.content as Uint8List)) as Map<String, dynamic>;
 
     var count = 0;
     // 书架
