@@ -24,10 +24,6 @@ class TtsService {
     await _tts.setSpeechRate((_rate - 0.5) * 1.2);
     await _tts.setPitch(1.0);
     await _tts.setVolume(1.0);
-    await _tts.setIosAudioCategory(IosAudioCategory.playback, [
-      IosAudioCategoryOptions.duckOthers,
-      IosAudioCategoryOptions.allowBluetooth,
-    ]);
     _initialized = true;
   }
 
