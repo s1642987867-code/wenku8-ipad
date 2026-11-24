@@ -246,9 +246,9 @@ class _ShelfPageState extends State<ShelfPage> {
                 // 来源筛选
                 ChoiceChip(label: const Text('全部来源'), selected: _sourceFilter == null, onSelected: (_) => setState(() { _sourceFilter = null; _haptic(); })),
                 const SizedBox(width: 6),
-                ChoiceChip(label: const Text('文库'), selected: _sourceFilter == BookSource.wenku8, onSelected: (_) => setState(() { _sourceFilter = BookSource.wenku8; _haptic(); })),
+                ChoiceChip(label: const Text('文库'), selected: _sourceFilter == 'wenku8', onSelected: (_) => setState(() { _sourceFilter = 'wenku8'; _haptic(); })),
                 const SizedBox(width: 6),
-                ChoiceChip(label: const Text('哔哩'), selected: _sourceFilter == BookSource.linovelib, onSelected: (_) => setState(() { _sourceFilter = BookSource.linovelib; _haptic(); })),
+                ChoiceChip(label: const Text('哔哩'), selected: _sourceFilter == 'linovelib', onSelected: (_) => setState(() { _sourceFilter = 'linovelib'; _haptic(); })),
                 const SizedBox(width: 6),
                 ChoiceChip(label: const Text('本地'), selected: _sourceFilter == 'local', onSelected: (_) => setState(() { _sourceFilter = 'local'; _haptic(); })),
                 const VerticalDivider(width: 16),
