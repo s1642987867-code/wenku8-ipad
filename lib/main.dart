@@ -33,23 +33,27 @@ class _Wenku8AppState extends State<Wenku8App> {
   }
 
   Future<void> _init() async {
-    // 加载 GBK 映射表
-    final gbkBytes = await rootBundle.load('assets/gbk_map.bin');
-    initGbkMap(gbkBytes.buffer.asUint8List());
+    try {
+      // 加载 GBK 映射表
+      final gbkBytes = await rootBundle.load('assets/gbk_map.bin');
+      initGbkMap(gbkBytes.buffer.asUint8List());
 
-    // 加载本地目录
-    await NovelCatalog.instance.load();
+      // 加载本地目录
+      await NovelCatalog.instance.load();
 
-    // 加载服务
-    await Future.wait([
-      ShelfService.instance.load(),
-      BookmarkService.instance.load(),
-      SettingsService.instance.load(),
-      AuthService.instance.load(),
-      LocalLibraryService.instance.load(),
-      WebDavService.instance.load(),
-    ]);
-
+      // 加载服务（单个失败不阻塞其它）
+      await Future.wait([
+        ShelfService.instance.load().catchError((_) {}),
+        BookmarkService.instance.load().catchError((_) {}),
+        SettingsService.instance.load().catchError((_) {}),
+        AuthService.instance.load().catchError((_) {}),
+        LocalLibraryService.instance.load().catchError((_) {}),
+        WebDavService.instance.load().catchError((_) {}),
+      ]);
+    } catch (_) {
+      // 启动降级：任何初始化失败都不阻塞进入 App
+    }
+    if (!mounted) return;
     setState(() => _ready = true);
   }
 

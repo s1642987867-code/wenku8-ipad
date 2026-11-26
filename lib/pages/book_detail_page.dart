@@ -52,7 +52,9 @@ class _BookDetailPageState extends State<BookDetailPage> {
         // 哔哩轻小说源
         final nid = widget.aid.startsWith('lino_') ? widget.aid.substring(5) : widget.aid;
         final book = await _lino.bookInfo(nid);
+        if (!mounted) return;
         final vols = await _lino.toc(nid);
+        if (!mounted) return;
         _book = book;
         _volumes = vols;
         if (vols.isNotEmpty) _expanded.add(vols.first.vid);
@@ -61,12 +63,14 @@ class _BookDetailPageState extends State<BookDetailPage> {
       }
       // wenku8 源：优先网页爬虫获取目录（更实时）
       final (book, vols) = await _scraper.toc(widget.aid);
+      if (!mounted) return;
       _book = book;
       _volumes = vols;
       // 默认展开第一卷
       if (vols.isNotEmpty) _expanded.add(vols.first.vid);
       setState(() { _loading = false; });
     } catch (e) {
+      if (!mounted) return;
       if (_isLino) {
         setState(() { _loading = false; _error = '$e'; });
         return;
@@ -74,11 +78,13 @@ class _BookDetailPageState extends State<BookDetailPage> {
       // 回退到 TXT 全本下载
       try {
         final (book, vols) = await _api.bookDetail(widget.aid);
+        if (!mounted) return;
         _book = book;
         _volumes = vols;
         if (vols.isNotEmpty) _expanded.add(vols.first.vid);
         setState(() { _loading = false; });
       } catch (e2) {
+        if (!mounted) return;
         setState(() { _loading = false; _error = '$e2'; });
       }
     }
@@ -218,8 +224,12 @@ class _BookDetailPageState extends State<BookDetailPage> {
           Expanded(
             child: FilledButton.icon(
               onPressed: () {
-                if (_volumes == null || _volumes!.isEmpty) return;
+                if (_volumes == null) return;
                 final flatChapters = _volumes!.expand((v) => v.chapters).toList();
+                if (flatChapters.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('目录为空，无法阅读')));
+                  return;
+                }
                 int startIdx = shelfEntry?.lastChapterIdx ?? 0;
                 if (startIdx >= flatChapters.length) startIdx = 0;
                 final ch = flatChapters[startIdx];

@@ -41,7 +41,11 @@ class TtsService {
     await _init();
     final clean = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (clean.isEmpty) return;
-    await _tts.speak(clean);
+    try {
+      await _tts.speak(clean);
+    } catch (_) {
+      // TTS 引擎异常不向上传播打断循环
+    }
   }
 
   /// 朗读段落列表，逐段回调（onSegmentDone(i)），用于滚动跟随

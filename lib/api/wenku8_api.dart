@@ -70,18 +70,19 @@ class Wenku8Api {
 
   /// 从缓存的全本 TXT 中切片章节内容
   Future<String> chapterContent(String aid, String cid) async {
-    final bt = _bookTexts[aid];
+    var bt = _bookTexts[aid];
     if (bt == null) {
       // 触发全本下载
       await bookDetail(aid);
+      bt = _bookTexts[aid];
+      if (bt == null) throw Wenku8Exception('全本下载失败，无法读取章节');
     }
-    final bt2 = _bookTexts[aid]!;
-    final idx = bt2.chapterByCid[cid];
+    final idx = bt.chapterByCid[cid];
     if (idx == null) throw Wenku8Exception('章节不存在: $cid');
     // 从 chapterLines 查找行范围
-    final range = bt2.chapterLines[idx];
+    final range = bt.chapterLines[idx];
     if (range == null) throw Wenku8Exception('章节行索引缺失');
-    final lines = bt2.lines;
+    final lines = bt.lines;
     return lines.sublist(range.$1, range.$2).join('\n').trim();
   }
 

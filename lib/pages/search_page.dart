@@ -37,6 +37,7 @@ class _SearchPageState extends State<SearchPage> {
       try {
         if (nid != null) {
           final book = await _lino.bookInfo(kwTrim);
+          if (!mounted) return;
           setState(() { _results = [book]; _searching = false; });
           return;
         }
@@ -45,6 +46,7 @@ class _SearchPageState extends State<SearchPage> {
         for (final p in ['monthvisit', 'weekvisit', 'allvisit']) {
           try { all.addAll(await _lino.ranking(period: p)); } catch (_) {}
         }
+        if (!mounted) return;
         final filtered = all.where((b) => b.title.contains(kwTrim) || kwTrim.contains(b.title)).toSet().toList();
         setState(() {
           _results = filtered;
@@ -54,6 +56,7 @@ class _SearchPageState extends State<SearchPage> {
               : null;
         });
       } catch (e) {
+        if (!mounted) return;
         setState(() { _results = []; _searching = false; _onlineError = '哔哩轻小说连接失败：$e\n可切换到轻小说文库本地目录搜索。'; });
       }
     } else {
@@ -65,6 +68,7 @@ class _SearchPageState extends State<SearchPage> {
           setState(() { _searching = true; });
           final scraper = WebScraper();
           final book = await scraper.bookInfo(kwTrim);
+          if (!mounted) return;
           setState(() { _results = [book]; _searching = false; });
           return;
         } catch (e) {
@@ -72,6 +76,7 @@ class _SearchPageState extends State<SearchPage> {
         }
       }
       final books = NovelCatalog.instance.search(kwTrim, limit: 100).map((e) => e.toBook()).toList();
+      if (!mounted) return;
       setState(() { _results = books; _searching = false; });
     }
   }

@@ -66,8 +66,10 @@ class _LinovelibTabState extends State<_LinovelibTab> {
     setState(() { _books = null; _error = null; });
     try {
       final books = await _lino.ranking(period: _period);
+      if (!mounted) return;
       setState(() { _books = books; });
     } catch (e) {
+      if (!mounted) return;
       setState(() { _error = '哔哩轻小说排行加载失败：\n$e'; });
     }
   }

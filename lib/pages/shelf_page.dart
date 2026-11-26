@@ -38,6 +38,7 @@ class _ShelfPageState extends State<ShelfPage> {
       final Map<dynamic, dynamic> raw = jsonDecode(json);
       _categories = raw.map((k, v) => MapEntry(k.toString(), (v as List).map((e) => e.toString()).toList()));
     }
+    if (!mounted) return;
     setState(() {});
   }
 

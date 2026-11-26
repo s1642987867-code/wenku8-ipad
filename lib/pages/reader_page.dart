@@ -71,7 +71,7 @@ class _ReaderPageState extends State<ReaderPage> {
   List<Chapter> get _flatChapters =>
       widget.volumes.expand((v) => v.chapters).toList();
 
-  Chapter get _currentChapter => _flatChapters[_chapterIdx];
+  Chapter get _currentChapter => _flatChapters[_chapterIdx.clamp(0, _flatChapters.length - 1)];
 
   List<String> get _paragraphs {
     final text = _content ?? '';
@@ -86,6 +86,11 @@ class _ReaderPageState extends State<ReaderPage> {
   void initState() {
     super.initState();
     _chapterIdx = widget.initialChapterIdx;
+    if (_flatChapters.isEmpty) {
+      _loading = false;
+      _error = '本书没有可读章节（文件可能为空或解析失败）';
+      return;
+    }
     _loadChapter();
   }
 
@@ -100,10 +105,12 @@ class _ReaderPageState extends State<ReaderPage> {
       } else {
         // 优先读缓存
         final cached = await ChapterCacheService.instance.get(widget.aid, ch.cid);
+        if (!mounted) return;
         if (cached != null) {
           content = cached;
         } else if (widget.book.source == BookSource.linovelib) {
           content = await _lino.chapter(widget.aid.substring(5), ch.cid);
+          if (!mounted) return;
           await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
         } else if (ch.cid.startsWith('w')) {
           try {
@@ -113,12 +120,15 @@ class _ReaderPageState extends State<ReaderPage> {
             await _api.bookDetail(widget.aid);
             content = await _api.chapterContent(widget.aid, ch.cid);
           }
+          if (!mounted) return;
           await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
         } else {
           content = await _api.chapterContent(widget.aid, ch.cid);
+          if (!mounted) return;
           await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
         }
       }
+      if (!mounted) return;
       _content = content;
       _loading = false;
       _currentPage = 0;
@@ -131,6 +141,7 @@ class _ReaderPageState extends State<ReaderPage> {
       // 记录阅读历史
       HistoryService.instance.record(widget.aid, widget.book.title, ch.cid, ch.title);
     } catch (e) {
+      if (!mounted) return;
       setState(() { _loading = false; _error = '$e'; });
     }
   }
@@ -313,10 +324,12 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   int _currentParagraphIndex() {
+    final n = _paragraphs.length;
+    if (n == 0) return 0;
     if (_scrollController.hasClients && _scrollController.position.maxScrollExtent > 0) {
       final settings = SettingsService.instance.current;
       final paraH = settings.fontSize * settings.lineHeight + settings.paragraphSpacing;
-      return (_scrollController.offset / paraH).floor().clamp(0, _paragraphs.length - 1);
+      return (_scrollController.offset / paraH).floor().clamp(0, n - 1);
     }
     return 0;
   }
@@ -579,8 +592,14 @@ class _ReaderPageState extends State<ReaderPage> {
                           final start = SettingsService.instance.current.pageMode == 'scroll'
                               ? _currentParagraphIndex()
                               : 0;
-                          _speakFrom(paras, start);
                           setSheet(() => _ttsPlaying = true);
+                          _speakFrom(paras, start).catchError((e) {
+                            _ttsPlaying = false;
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('听书失败: $e'), duration: const Duration(seconds: 2)));
+                            }
+                          });
                         }
                       },
                       icon: Icon(_ttsPlaying ? Icons.pause : Icons.play_arrow),

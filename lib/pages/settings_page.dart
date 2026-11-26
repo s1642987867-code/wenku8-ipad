@@ -219,7 +219,7 @@ class _SettingsPageState extends State<SettingsPage> {
             subtitle: const Text('从 ZIP 备份恢复'),
             onTap: () async {
               final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['zip']);
-              final path = result?.files.single.path;
+              final path = (result?.files.isNotEmpty ?? false) ? result!.files.first.path : null;
               if (path == null) return;
               try {
                 final n = await BackupService.instance.importFromFile(path);

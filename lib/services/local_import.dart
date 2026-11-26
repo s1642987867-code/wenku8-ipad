@@ -226,6 +226,9 @@ class LocalLibraryService {
         pos = end;
         idx++;
       }
+      if (chunks.isEmpty) {
+        throw Exception('文件内容为空或无法解析出正文');
+      }
       return [Volume(vid: 'v0', title: '全文', chapters: chunks)];
     }
     return volumes;

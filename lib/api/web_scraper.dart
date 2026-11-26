@@ -183,9 +183,14 @@ class WebScraper {
         .replaceAll('&lt;', '<')
         .replaceAll('&gt;', '>')
         .replaceAll('&quot;', '"')
-        .replaceAllMapped(RegExp(r'&#(\d+);'), (m) => String.fromCharCode(int.parse(m.group(1)!)))
-        .replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'),
-            (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)));
+        .replaceAllMapped(RegExp(r'&#(\d+);'), (m) {
+          final cp = int.tryParse(m.group(1)!);
+          return (cp != null && cp >= 0 && cp <= 0x10FFFF) ? String.fromCharCode(cp) : '';
+        })
+        .replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
+          final cp = int.tryParse(m.group(1)!, radix: 16);
+          return (cp != null && cp >= 0 && cp <= 0x10FFFF) ? String.fromCharCode(cp) : '';
+        });
 
     // 去首尾水印
     txt = txt.replaceAll(RegExp(r'^\s*本文来自.*$', multiLine: true), '');

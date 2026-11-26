@@ -101,7 +101,7 @@ class HistoryService {
     final json = prefs.getString('reading_history');
     if (json != null) {
       final List<dynamic> raw = jsonDecode(json);
-      _history..clear()..addAll(raw.cast<Map<String, dynamic>>());
+      _history..clear()..addAll(raw.whereType<Map<String, dynamic>>());
     }
   }
 

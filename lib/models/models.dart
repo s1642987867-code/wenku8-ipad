@@ -187,8 +187,13 @@ class ShelfEntry {
         'isDownloaded': isDownloaded,
       };
 
-  factory ShelfEntry.fromJson(Map<String, dynamic> j) => ShelfEntry(
-        book: Book.fromJson(j['book'] as Map<String, dynamic>),
+  factory ShelfEntry.fromJson(Map<String, dynamic> j) {
+    final rawBook = j['book'];
+    final book = rawBook is Map<String, dynamic>
+        ? Book.fromJson(rawBook)
+        : Book(aid: '', title: '（损坏的书架数据）');
+    return ShelfEntry(
+        book: book,
         lastCid: j['lastCid']?.toString(),
         lastChapterTitle: j['lastChapterTitle']?.toString(),
         lastChapterIdx: (j['lastChapterIdx'] as num?)?.toInt(),
@@ -196,6 +201,7 @@ class ShelfEntry {
         lastReadAt: (j['lastReadAt'] as num?)?.toInt() ?? 0,
         isDownloaded: j['isDownloaded'] as bool? ?? false,
       );
+  }
 }
 
 /// 书签
