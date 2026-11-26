@@ -106,7 +106,13 @@ class _ReaderPageState extends State<ReaderPage> {
           content = await _lino.chapter(widget.aid.substring(5), ch.cid);
           await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
         } else if (ch.cid.startsWith('w')) {
-          content = await _scraper.chapter(widget.aid, ch.cid);
+          try {
+            content = await _scraper.chapter(widget.aid, ch.cid);
+          } catch (_) {
+            // 网页抓取失败（Cloudflare 拦截等）→ 回退到 dl.wenku8.com 全本 TXT 切片
+            await _api.bookDetail(widget.aid);
+            content = await _api.chapterContent(widget.aid, ch.cid);
+          }
           await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
         } else {
           content = await _api.chapterContent(widget.aid, ch.cid);

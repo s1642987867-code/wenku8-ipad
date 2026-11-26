@@ -9,6 +9,7 @@ import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../src/gbk.dart' show decodeGbk;
 import '../models/models.dart';
 
 /// 本地导入结果
@@ -147,58 +148,36 @@ class LocalLibraryService {
     return book;
   }
 
-  /// 自动编码检测：UTF-8 BOM → 严格 UTF-8 → GBK 双字节映射
+  /// 自动编码检测：UTF-8 BOM → 严格 UTF-8 → 完整 GBK 映射表
   String _decodeAuto(List<int> bytes) {
     if (bytes.length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) {
       return utf8.decode(bytes.sublist(3), allowMalformed: true);
     }
+    // 无 BOM：先严格 UTF-8；若解码失败或结果像"GBK 被误读为 UTF-8"的乱码，走完整 GBK 解码
     try {
-      return utf8.decode(bytes);
-    } catch (_) {
-      return _decodeGbk(bytes);
-    }
+      final s = utf8.decode(bytes);
+      // 启发式：纯 ASCII 视为正常；含 CJK 视为正常 UTF-8；
+      // 若大量西文重音字符（GBK 双字节常被 UTF-8 误读为此类）则改走 GBK
+      if (_looksLikeUtf8(s)) return s;
+    } catch (_) {}
+    return decodeGbk(bytes);
   }
 
-  String _decodeGbk(List<int> bytes) {
-    // GBK 常用区映射（GB2312 主体 + GBK 扩展高频区），未覆盖字符用 U+FFFD
-    final out = StringBuffer();
-    var i = 0;
-    while (i < bytes.length) {
-      final b = bytes[i];
-      if (b < 0x80) { out.writeCharCode(b); i++; continue; }
-      if (i + 1 >= bytes.length) { out.writeCharCode(0xFFFD); i++; continue; }
-      final code = (b << 8) | bytes[i + 1];
-      out.writeCharCode(_gbkToUnicode(code) ?? 0xFFFD);
-      i += 2;
+  bool _looksLikeUtf8(String s) {
+    var cjk = 0, latinAccents = 0, replacement = 0;
+    for (final r in s.runes) {
+      if ((r >= 0x4E00 && r <= 0x9FFF) || (r >= 0x3000 && r <= 0x303F) || (r >= 0xFF00 && r <= 0xFFEF)) {
+        cjk++;
+      } else if ((r >= 0xC0 && r <= 0x17F) || r == 0x2019 || r == 0x201C || r == 0x201D || r == 0x2026) {
+        latinAccents++;
+      } else if (r == 0xFFFD) {
+        replacement++;
+      }
     }
-    return out.toString();
-  }
-
-  /// GBK→Unicode 简表：GB2312 区（0xB0A1-0xF7FE）+ 常用符号区
-  /// 完整实现需 23940 项映射；此处用内置的 GB2312 高频子表。
-  /// 注：非常用字会显示为�，但整体可读性优于 latin1 乱码。
-  static const Map<int, String> _gbkHighFreq = {
-    0xB0A1: '啊', 0xB0A2: '阿', 0xB0A3: '埃', 0xB0A4: '挨', 0xB0A5: '哎', 0xB0A6: '唉',
-    0xB0A7: '哀', 0xB0A8: '皑', 0xB0A9: '癌', 0xB0AA: '蔼', 0xB0AB: '矮', 0xB0AC: '艾',
-    0xB0AD: '碍', 0xB0AE: '爱', 0xB0AF: '隘', 0xB0B0: '鞍', 0xB0B1: '氨', 0xB0B2: '安',
-    0xB0B3: '俺', 0xB0B4: '按', 0xB0B5: '暗', 0xB0B6: '岸', 0xB0B7: '胺', 0xB0B8: '案',
-    0xB0B9: '肮', 0xB0BA: '昂', 0xB0BB: '盎', 0xB0BC: '凹', 0xB0BD: '敖', 0xB0BE: '熬',
-    0xB0BF: '翱', 0xB0C0: '袄', 0xB0C1: '傲', 0xB0C2: '奥', 0xB0C3: '懊', 0xB0C4: '澳',
-    // ... 中间省略（完整映射过于庞大，后续用外部资产替换）
-    0xD6D0: '中', 0xCEC4: '文', 0xB4F3: '大', 0xD0A1: '小', 0xC8CB: '人', 0xCCEC: '天',
-  };
-
-  int? _gbkToUnicode(int code) {
-    // 1) 高频表命中
-    final s = _gbkHighFreq[code];
-    if (s != null) return s.runes.first;
-    // 2) GB2312 区粗略线性映射（仅对常用一级汉字区有效，不精确但可读）
-    if (code >= 0xB0A1 && code <= 0xD7F9) {
-      // 一级汉字 3755 个：区码 16-55，位码 1-94，线性排列对应 Unicode 4E00 起的部分
-      // 实际 GB2312→Unicode 无线性关系，此分支返回占位
-      return 0xFFFD;
-    }
-    return null;
+    if (replacement > 0) return false;
+    if (cjk > 0) return true; // 有中文 → UTF-8 正确
+    if (latinAccents > 8 && latinAccents * 2 > s.runes.length) return false; // 乱码特征
+    return true;
   }
 
   // ============ TXT 卷/章结构解析 ============

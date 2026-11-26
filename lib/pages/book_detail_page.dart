@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../api/linovelib_api.dart';
+import '../api/novel_catalog.dart';
 import '../api/web_scraper.dart';
 import '../api/wenku8_api.dart';
 import '../models/models.dart';
@@ -43,6 +44,9 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   Future<void> _loadData() async {
     setState(() { _loading = true; _error = null; });
+    // catalog 快照元数据兜底（网络失败时至少显示书名/简介）
+    final catalogMeta = _catalogBook(widget.aid);
+    if (_book == null && catalogMeta != null) _book = catalogMeta;
     try {
       if (_isLino) {
         // 哔哩轻小说源
@@ -77,6 +81,18 @@ class _BookDetailPageState extends State<BookDetailPage> {
       } catch (e2) {
         setState(() { _loading = false; _error = '$e2'; });
       }
+    }
+  }
+
+  /// 从本地目录快照读取书籍元数据
+  Book? _catalogBook(String aid) {
+    final n = int.tryParse(aid);
+    if (n == null) return null;
+    try {
+      final entry = NovelCatalog.instance.search(aid, limit: 1).firstOrNull;
+      return entry?.toBook();
+    } catch (_) {
+      return null;
     }
   }
 
