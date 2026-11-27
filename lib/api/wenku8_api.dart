@@ -86,6 +86,26 @@ class Wenku8Api {
     return lines.sublist(range.$1, range.$2).join('\n').trim();
   }
 
+  /// 按章节标题从全本 TXT 中切片（网页目录回退用：网页 cid 与 TXT cid 不同）
+  Future<String> chapterContentByTitle(String aid, String title) async {
+    var bt = _bookTexts[aid];
+    if (bt == null) {
+      await bookDetail(aid);
+      bt = _bookTexts[aid];
+      if (bt == null) throw Wenku8Exception('全本下载失败');
+    }
+    // 精确匹配 → 前缀匹配（"第3章 xx" vs "第三章 xx" 无法处理，前缀取"第3章"）
+    final t = title.trim();
+    for (final entry in bt.chapterByCid.entries) {
+      final ch = bt.volumes.expand((v) => v.chapters).where((c) => c.cid == entry.key).firstOrNull;
+      if (ch == null) continue;
+      if (ch.title.trim() == t || ch.title.trim().startsWith(t) || t.startsWith(ch.title.trim())) {
+        return chapterContent(aid, entry.key);
+      }
+    }
+    throw Wenku8Exception('全本 TXT 中未找到章节: $t');
+  }
+
   /// 解析全本 TXT → Book + Volumes + Chapters
   _BookText _parseFullText(String aid, String raw) {
     final lines = raw.split('\n');

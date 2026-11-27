@@ -59,6 +59,17 @@ class LocalBook {
 
 /// 本地书库服务
 class LocalLibraryService {
+  /// 生成不冲突的本地书 id（时间戳 + 自增序号防同毫秒碰撞）
+  String _nextId() {
+    var n = 0;
+    String id;
+    do {
+      id = 'local_${DateTime.now().millisecondsSinceEpoch}_${n++}';
+    } while (_books.any((b) => b.id == id));
+    return id;
+  }
+
+
   static final LocalLibraryService instance = LocalLibraryService._();
   LocalLibraryService._();
 
@@ -136,7 +147,7 @@ class LocalLibraryService {
         .replaceAll(RegExp(r'\.txt$', caseSensitive: false), '');
     final volumes = _parseTxtStructure(text);
     final book = LocalBook(
-      id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      id: _nextId(),
       title: name,
       author: '',
       format: 'txt',
@@ -185,16 +196,16 @@ class LocalLibraryService {
     final lines = text.split('\n');
     final volumes = <Volume>[];
     var currentVol = Volume(vid: 'v0', title: '正文', chapters: []);
-    Chapter? currentCh;
+    // 先建"前言"章，首个标题行前的内容不丢失
+    Chapter currentCh = Chapter(aid: '', cid: 'c_pre', title: '前言');
     var chStart = 0;
     final volRe = RegExp(r'^\s*第[一二三四五六七八九十百千零0-9]+[卷部辑]\s*');
     final chRe = RegExp(r'^\s*第[一二三四五六七八九十百千零0-9]+[章章节节回话][节]?\s*');
 
     void flushChapter(int endLine) {
-      if (currentCh == null) return;
       final content = lines.sublist(chStart, endLine).join('\n').trim();
       if (content.isNotEmpty) {
-        currentVol.chapters.add(Chapter(aid: '', cid: currentCh!.cid, title: currentCh!.title, localContent: content));
+        currentVol.chapters.add(Chapter(aid: '', cid: currentCh.cid, title: currentCh.title, localContent: content));
       }
     }
 
@@ -298,10 +309,14 @@ class LocalLibraryService {
       final titleM = RegExp(r'<h[1-6][^>]*>([^<]+)</h[1-6]>').firstMatch(html);
       var body = RegExp(r'<body[^>]*>([\s\S]*?)</body>').firstMatch(html)?.group(1) ?? html;
       body = body.replaceAll(RegExp(r'<(script|style)[^>]*>[\s\S]*?</\1>', caseSensitive: false), '');
-      final paras = RegExp(r'<p[^>]*>([\s\S]*?)</p>|<div[^>]*>([\s\S]*?)</div>')
-          .allMatches(body)
-          .map((m) => _stripTags(m.group(1) ?? m.group(2) ?? ''))
-          .where((p) => p.isNotEmpty)
+      // 先把块级标签边界与 <br> 转为换行，再整体剥标签（兼容嵌套 div 与 <br> 分行）
+      body = body
+          .replaceAll(RegExp(r'</(p|div|h[1-6]|li)>', caseSensitive: false), '\n')
+          .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+      final paras = _stripTags(body)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty)
           .join('\n');
       if (paras.isEmpty) continue;
       chapters.add(Chapter(
@@ -327,7 +342,7 @@ class LocalLibraryService {
 
     if (chapters.isEmpty) throw Exception('EPUB 无有效章节');
     final book = LocalBook(
-      id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+      id: _nextId(),
       title: name, author: author, format: 'epub',
       volumes: [Volume(vid: 'v0', title: name, chapters: chapters)],
       coverPath: coverPath,
@@ -345,7 +360,7 @@ class LocalLibraryService {
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>')
       .replaceAll('&quot;', '"')
-      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(RegExp(r'[ \t]+'), ' ')
       .trim();
 
   // ============ ZIP 导入（多个 TXT） ============

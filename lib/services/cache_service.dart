@@ -189,11 +189,29 @@ class BackupService {
       }
       await prefs.setString('bookmarks', jsonEncode(merged));
     }
-    // 历史
+    // 历史（按 aid+at 去重合并，不覆盖本机现有）
     final history = (data['history'] as List<dynamic>? ?? []);
     if (history.isNotEmpty) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('reading_history', jsonEncode(history));
+      final existingJson = prefs.getString('reading_history');
+      final List<dynamic> merged = existingJson != null ? jsonDecode(existingJson) : [];
+      final keys = merged.map((m) => '${m['aid']}|${m['at']}').toSet();
+      for (final h in history.whereType<Map<String, dynamic>>()) {
+        final k = '${h['aid']}|${h['at']}';
+        if (!keys.contains(k)) {
+          merged.add(h);
+          keys.add(k);
+        }
+      }
+      await prefs.setString('reading_history', jsonEncode(merged));
+      await HistoryService.instance.load(); // 重新加载进内存
+    }
+    // 阅读设置恢复
+    final settingsJson = data['settings'];
+    if (settingsJson is Map<String, dynamic>) {
+      try {
+        await SettingsService.instance.update(ReaderSettings.fromJson(settingsJson));
+      } catch (_) {/* 设置字段不兼容时跳过 */}
     }
     return count;
   }

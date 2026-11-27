@@ -193,6 +193,7 @@ class _ShelfPageState extends State<ShelfPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(imported.isEmpty ? '导入失败（格式不支持或文件损坏）' : '成功导入 ${imported.length} 本书籍'),
       ));
+      setState(() {}); // 本地书列表刷新
     }
   }
 
@@ -201,11 +202,17 @@ class _ShelfPageState extends State<ShelfPage> {
     if (book.aid.startsWith('local_')) {
       final lb = LocalLibraryService.instance.byId(book.aid);
       if (lb != null) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => ReaderPage(aid: lb.id, book: book, volumes: lb.volumes)));
+        // 注册进书架服务以记录阅读进度（若无则添加）
+        if (!ShelfService.instance.contains(lb.id)) {
+          ShelfService.instance.add(lb.toBook());
+        }
+        Navigator.push(context, MaterialPageRoute(builder: (_) => ReaderPage(aid: lb.id, book: book, volumes: lb.volumes)))
+            .then((_) { if (mounted) setState(() {}); }); // 返回后刷新进度显示
         return;
       }
     }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => BookDetailPage(aid: book.aid, book: book)));
+    Navigator.push(context, MaterialPageRoute(builder: (_) => BookDetailPage(aid: book.aid, book: book)))
+        .then((_) { if (mounted) setState(() {}); });
   }
 
   // ============ 触觉反馈 ============

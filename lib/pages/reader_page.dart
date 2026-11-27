@@ -2,6 +2,8 @@
 /// 书签、章内查找、页边距/缩进/段距排版，全部实时生效
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -91,7 +93,24 @@ class _ReaderPageState extends State<ReaderPage> {
       _error = '本书没有可读章节（文件可能为空或解析失败）';
       return;
     }
+    _scrollController.addListener(_onScrollProgress);
     _loadChapter();
+  }
+
+  Timer? _progressDebounce;
+  /// 滚动时防抖记录章内位置（用于续读）
+  void _onScrollProgress() {
+    _progressDebounce?.cancel();
+    _progressDebounce = Timer(const Duration(milliseconds: 800), () {
+      if (!mounted || _loading) return;
+      final max = _scrollController.position.maxScrollExtent;
+      if (max <= 0) return;
+      final ratio = (_scrollController.offset / max).clamp(0.0, 1.0);
+      final ch = _currentChapter;
+      ShelfService.instance.updateProgress(
+        widget.aid, ch.cid, ch.title, _chapterIdx, (ratio * 1000).round(),
+      );
+    });
   }
 
   Future<void> _loadChapter() async {
@@ -117,8 +136,9 @@ class _ReaderPageState extends State<ReaderPage> {
             content = await _scraper.chapter(widget.aid, ch.cid);
           } catch (_) {
             // 网页抓取失败（Cloudflare 拦截等）→ 回退到 dl.wenku8.com 全本 TXT 切片
+            // 网页 cid（w86071）与 TXT 目录 cid（c0_0）不同，按标题匹配
             await _api.bookDetail(widget.aid);
-            content = await _api.chapterContent(widget.aid, ch.cid);
+            content = await _api.chapterContentByTitle(widget.aid, ch.title);
           }
           if (!mounted) return;
           await ChapterCacheService.instance.put(widget.aid, ch.cid, content);
@@ -135,6 +155,14 @@ class _ReaderPageState extends State<ReaderPage> {
       _paginate();
       setState(() {});
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      // 书签跳转：滚到指定段落
+      if (_pendingScrollParagraph != null) {
+        final p = _pendingScrollParagraph!;
+        _pendingScrollParagraph = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToParagraph(p));
+      }
+      // 翻页模式：重置到第一页
+      if (_pageController.hasClients) _pageController.jumpToPage(0);
       ShelfService.instance.updateProgress(
         widget.aid, ch.cid, ch.title, _chapterIdx, 0,
       );
@@ -158,8 +186,12 @@ class _ReaderPageState extends State<ReaderPage> {
       Future<String> Function(String) fetch;
       if (widget.book.source == BookSource.linovelib) {
         fetch = (cid) => _lino.chapter(widget.aid.substring(5), cid);
-      } else {
+      } else if (widget.volumes.expand((v) => v.chapters).every((c) => c.cid.startsWith('w'))) {
+        // 网页目录章节
         fetch = (cid) => _scraper.chapter(widget.aid, cid);
+      } else {
+        // TXT 全本目录章节（c 前缀）
+        fetch = (cid) => _api.chapterContent(widget.aid, cid);
       }
       final n = await ChapterCacheService.instance.cacheWholeBook(widget.aid, widget.volumes, fetch);
       if (mounted) Navigator.pop(context);
@@ -351,9 +383,15 @@ class _ReaderPageState extends State<ReaderPage> {
               trailing: IconButton(icon: const Icon(Icons.delete_outline), onPressed: () { BookmarkService.instance.remove(b.id); Navigator.pop(sheetCtx); }),
               onTap: () {
                 Navigator.pop(sheetCtx);
-                // 定位到书签章节
+                // 定位到书签章节 + 段落
                 final target = _flatChapters.indexWhere((c) => c.cid == b.cid);
-                if (target >= 0 && target != _chapterIdx) { _chapterIdx = target; _loadChapter(); }
+                if (target >= 0 && target != _chapterIdx) {
+                  _chapterIdx = target;
+                  _pendingScrollParagraph = b.paragraphIdx;
+                  _loadChapter();
+                } else if (target == _chapterIdx) {
+                  _scrollToParagraph(b.paragraphIdx);
+                }
               },
             )),
           ],
@@ -554,9 +592,10 @@ class _ReaderPageState extends State<ReaderPage> {
   }
 
   // ============ 听书 ============
-  bool _ttsPlaying = false;
+  final _ttsPlayingNotifier = ValueNotifier<bool>(false); // 面板监听刷新
   double _ttsRate = 1.0;
   DateTime? _ttsStopAt; // 睡眠定时
+  int? _pendingScrollParagraph; // 章节加载后要滚动到的段落（书签跳转）
 
   Future<void> _showTtsSheet() async {
     final available = await TtsService.instance.isAvailable();
@@ -580,36 +619,41 @@ class _ReaderPageState extends State<ReaderPage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    IconButton.filled(
-                      iconSize: 40,
-                      onPressed: () {
-                        if (_ttsPlaying) {
-                          TtsService.instance.pause();
-                          setSheet(() => _ttsPlaying = false);
-                        } else {
-                          // 从当前段落开始朗读
-                          final paras = _paragraphs;
-                          final start = SettingsService.instance.current.pageMode == 'scroll'
-                              ? _currentParagraphIndex()
-                              : 0;
-                          setSheet(() => _ttsPlaying = true);
-                          _speakFrom(paras, start).catchError((e) {
-                            _ttsPlaying = false;
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('听书失败: $e'), duration: const Duration(seconds: 2)));
-                            }
-                          });
-                        }
-                      },
-                      icon: Icon(_ttsPlaying ? Icons.pause : Icons.play_arrow),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _ttsPlayingNotifier,
+                      builder: (_, playing, __) => IconButton.filled(
+                        iconSize: 40,
+                        onPressed: () {
+                          if (playing) {
+                            TtsService.instance.pause();
+                            _ttsPlayingNotifier.value = false;
+                          } else {
+                            // 从当前段落开始朗读
+                            final paras = _paragraphs;
+                            final start = SettingsService.instance.current.pageMode == 'scroll'
+                                ? _currentParagraphIndex()
+                                : 0;
+                            _ttsPlayingNotifier.value = true;
+                            _speakFrom(paras, start).whenComplete(() {
+                              _ttsPlayingNotifier.value = false;
+                            }).catchError((e) {
+                              _ttsPlayingNotifier.value = false;
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('听书失败: $e'), duration: const Duration(seconds: 2)));
+                              }
+                            });
+                          }
+                        },
+                        icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                      ),
                     ),
                     const SizedBox(width: 24),
                     IconButton.filledTonal(
                       iconSize: 32,
                       onPressed: () {
                         TtsService.instance.stop();
-                        setSheet(() => _ttsPlaying = false);
+                        _ttsPlayingNotifier.value = false;
                       },
                       icon: const Icon(Icons.stop),
                     ),
@@ -662,10 +706,9 @@ class _ReaderPageState extends State<ReaderPage> {
         await TtsService.instance.stop();
         break;
       }
-      if (!_ttsPlaying) break;
+      if (!_ttsPlayingNotifier.value) break;
       await TtsService.instance.speak(paras[i]);
     }
-    _ttsPlaying = false;
   }
 
   Widget _buildTocDrawer(Color textColor) {
@@ -711,6 +754,8 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    _progressDebounce?.cancel();
+    _ttsPlayingNotifier.dispose();
     _scrollController.dispose();
     _pageController.dispose();
     _focusNode.dispose();

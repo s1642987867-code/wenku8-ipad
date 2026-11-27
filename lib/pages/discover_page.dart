@@ -193,6 +193,7 @@ class _RankingTab extends StatefulWidget {
 class _RankingTabState extends State<_RankingTab> {
   String _sort = 'hot';
   int _page = 1;
+  bool _hasMore = true;
   final _scrollController = ScrollController();
 
   @override
@@ -202,8 +203,14 @@ class _RankingTabState extends State<_RankingTab> {
   }
 
   void _onScroll() {
+    if (!_hasMore) return;
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-      setState(() => _page++);
+      final next = NovelCatalog.instance.listPage(sort: _sort, page: _page + 1);
+      if (next.isEmpty) {
+        setState(() => _hasMore = false); // 数据取尽，停止递增
+      } else {
+        setState(() => _page++);
+      }
     }
   }
 
@@ -242,7 +249,7 @@ class _RankingTabState extends State<_RankingTab> {
       child: ChoiceChip(
         label: Text(label),
         selected: _sort == sort,
-        onSelected: (_) => setState(() { _sort = sort; _page = 1; }),
+        onSelected: (_) => setState(() { _sort = sort; _page = 1; _hasMore = true; }),
       ),
     );
   }
@@ -257,14 +264,21 @@ class _CategoryTab extends StatefulWidget {
 class _CategoryTabState extends State<_CategoryTab> {
   String? _selectedTag;
   int _page = 1;
+  bool _hasMore = true;
   final _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(() {
+      if (!_hasMore) return;
       if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
-        setState(() => _page++);
+        final next = NovelCatalog.instance.listPage(tag: _selectedTag, page: _page + 1);
+        if (next.isEmpty) {
+          setState(() => _hasMore = false);
+        } else {
+          setState(() => _page++);
+        }
       }
     });
     _selectedTag = NovelCatalog.instance.tags.isNotEmpty ? NovelCatalog.instance.tags.first : null;
@@ -298,7 +312,7 @@ class _CategoryTabState extends State<_CategoryTab> {
               return ListTile(
                 title: Text(tag),
                 selected: tag == _selectedTag,
-                onTap: () => setState(() { _selectedTag = tag; _page = 1; }),
+                onTap: () => setState(() { _selectedTag = tag; _page = 1; _hasMore = true; }),
               );
             },
           ),

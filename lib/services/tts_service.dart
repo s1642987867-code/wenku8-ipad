@@ -15,13 +15,16 @@ class TtsService {
   double get rate => _rate;
   set rate(double v) {
     _rate = v.clamp(0.5, 3.0);
-    if (_initialized) _tts.setSpeechRate((_rate - 0.5) * 1.2); // 0.0-3.0 映射
+    if (_initialized) _tts.setSpeechRate(_mappedRate());
   }
+
+  /// 用户 0.5x-3.0x → 引擎 0-3（Android 正常语速≈1.0）
+  double _mappedRate() => ((_rate - 0.5) / 2.5) * 3.0;
 
   Future<void> _init() async {
     if (_initialized) return;
     await _tts.setLanguage(_lang);
-    await _tts.setSpeechRate((_rate - 0.5) * 1.2);
+    await _tts.setSpeechRate(_mappedRate());
     await _tts.setPitch(1.0);
     await _tts.setVolume(1.0);
     _initialized = true;
@@ -45,17 +48,6 @@ class TtsService {
       await _tts.speak(clean);
     } catch (_) {
       // TTS 引擎异常不向上传播打断循环
-    }
-  }
-
-  /// 朗读段落列表，逐段回调（onSegmentDone(i)），用于滚动跟随
-  Future<void> speakParagraphs(List<String> paragraphs, {void Function(int)? onSegment}) async {
-    await _init();
-    for (var i = 0; i < paragraphs.length; i++) {
-      final p = paragraphs[i].trim();
-      if (p.isEmpty) continue;
-      await _tts.speak(p);
-      onSegment?.call(i);
     }
   }
 

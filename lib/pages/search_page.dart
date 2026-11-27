@@ -47,7 +47,9 @@ class _SearchPageState extends State<SearchPage> {
           try { all.addAll(await _lino.ranking(period: p)); } catch (_) {}
         }
         if (!mounted) return;
-        final filtered = all.where((b) => b.title.contains(kwTrim) || kwTrim.contains(b.title)).toSet().toList();
+        // 按 aid 去重（Book 未重写 ==，跨榜单重复对象需手动去重）
+        final byId = {for (final b in all) b.aid: b};
+        final filtered = byId.values.where((b) => b.title.contains(kwTrim) || kwTrim.contains(b.title)).toList();
         setState(() {
           _results = filtered;
           _searching = false;
